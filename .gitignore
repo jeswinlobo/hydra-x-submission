@@ -1,0 +1,48 @@
+# Reference repositories and full datasets
+/hydradb/
+/dataset/
+/HERB/
+/external/
+
+# Local HydraDB state and generated artifacts
+/hydradb-data/
+/.hydradb/
+/indexes/
+/checkpoints/
+/artifacts/
+/models/
+/logs/
+
+# Agent and editor-local state
+/.agents/
+/.codex/
+/.claude/
+/CLAUDE.md
+/.idea/
+/.vscode/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+auth-token
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Node and frontend builds
+node_modules/
+dist/
+coverage/
+
+# Operating system files
+.DS_Store
+Thumbs.db
