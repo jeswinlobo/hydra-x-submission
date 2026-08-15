@@ -4,7 +4,7 @@
 
 Build a working enterprise truth debugger on HydraDB: a product that turns roughly 512,000 noisy documents from nine enterprise sources into a provenance-first ontology, resolves ambiguous identities and relation vocabulary, preserves conflicting claims, answers multi-hop questions with exact citations, and abstains when evidence is insufficient.
 
-Working name: **TraceGraph**. Freeze the final name by Aug 15; do not spend engineering time on branding before the core vertical slice works.
+Working name: **TraceGraph**. The name is frozen; do not spend any engineering time on branding.
 
 One-line pitch:
 
@@ -13,6 +13,8 @@ One-line pitch:
 HydraDB is used as an external database service through its published Docker image, Bolt, and HTTP APIs. We do not modify or vendor HydraDB's Rust source. The local hydradb/ clone is reference material and must not be committed to the project repository.
 
 No plan can guarantee a win. This plan targets a 9/10–10/10 submission by producing visible proof for every judging criterion while keeping the scope achievable before Aug 20, 2026.
+
+Stakes: the top submission from each track advances to a three-finalist final round ranked for $5,000 / $3,000 / $1,500, so winning Track 1 guarantees at least $1,500. Best Use of HydraDB ($500) is judged separately and stays winnable regardless of track placement. Both targets are reflected in the judge-proof table below.
 
 ## What judges must be able to prove
 
@@ -33,7 +35,7 @@ Every important README or video claim must be backed by a live interaction, Hydr
 
 - Public project repository with safe gitignore, open-source license, attribution, and no pre-Aug-12 participant work.
 - Pinned HydraDB container, health check, and automated Bolt/HTTP round-trip proof.
-- Full-corpus document registry and lexical discovery for all nine sources. Rich P0 structure edges are limited to Slack, Gmail, GitHub, Linear, and Jira; Drive, Confluence, Fireflies, and HubSpot receive document nodes, full-text retrieval, exact references, and priority claim extraction before broader source-specific structure.
+- Full-corpus document registry and lexical discovery for all nine sources. Rich P0 structure edges are guaranteed for Slack, Gmail, and GitHub; Linear and Jira are added only if the Aug 17 ingestion benchmark shows headroom. Drive, Confluence, Fireflies, and HubSpot receive document nodes, full-text retrieval, exact references, and priority claim extraction before broader source-specific structure.
 - Correct ontology containing entities, mentions, predicates, claims, values, evidence spans, and provenance.
 - Deterministic node and relationship IDs with collision detection.
 - Hybrid candidate retrieval; HydraDB performs evidence composition and reasoning.
@@ -44,7 +46,7 @@ Every important README or video claim must be backed by a live interaction, Hydr
 - One polished Ask & Inspect UI with focused evidence graph and HydraDB trace.
 - Three excellent demos: entity resolution/multi-hop, conflict, and abstention.
 - Baseline-versus-graph ablation and reproducible sample dataset.
-- README, setup, video, and submission form completed by Aug 19.
+- README, setup, video, and submission form completed by Aug 20 IST evening.
 
 ### P1 — only after P0 works end to end
 
@@ -74,12 +76,14 @@ Every important README or video claim must be backed by a live interaction, Hydr
 - The documented Parquet schema contains doc_id, source_type, title, and content. Authors, timestamps, threads, recipients, and other structure must be verified inside actual content before parser assumptions are made.
 - Secondary dataset: dataset/HERB/, CC-BY-NC-4.0. Use only for isolated research evaluation. Never use its team and customers oracle fields as retrievable evidence.
 - Local machine: 16 cores, 15GB RAM, RTX 3050 4GB, Docker available, about 18GB free disk.
-- LLM: self-hosted gpt-oss-120b on a DigitalOcean AMD GPU droplet through vLLM's OpenAI-compatible API.
-- Deadline: Aug 20, 2026. Target completed submission: Aug 19.
+- LLM: self-hosted gpt-oss-120b on a DigitalOcean AMD GPU droplet through vLLM's OpenAI-compatible API. Endpoint status is unverified; a connectivity and structured-JSON smoke test is an Aug 16 morning gate, and provisioning happens first if the droplet is not live.
+- Workspace state as of Aug 15 night: the repository contains only PLAN.md, README.md, and .gitignore. No code, indexes, or eval split exists. The ghcr.io/hydra-db/hydradb:latest image is pulled but no container has ever been created, so no HTTP/Bolt round trip has run yet.
+- The hydradb reference clone is not in the workspace. Re-materialize it on Aug 16 (unzip ~/Downloads/glasshouse-hydradb-main.zip or fresh-clone github.com/hydra-db/hydradb) into the gitignored hydradb/ path.
+- Deadline: Aug 20, 2026, 11:59 PM PT, which is Aug 21, 12:29 PM IST. Late submissions are not accepted. Target completed submission: Aug 20 IST evening, leaving about 16 hours of true buffer.
 
 ## HydraDB constraints controlling the design
 
-hydradb/cypher-compat.md, hydradb/README.md, and hydradb/AGENTS.md are the sources of truth.
+hydradb/cypher-compat.md, hydradb/README.md, and hydradb/AGENTS.md are the sources of truth. The clone is currently missing from the workspace; restoring it is the first Aug 16 task, and the ingestion-gating behaviors in this table must be re-verified against the pinned container before bulk ingestion.
 
 | HydraDB behavior | Required response |
 |---|---|
@@ -216,7 +220,7 @@ CONFLICTS_WITH is logically symmetric, while HydraDB edges are directed. Store o
 - Create deterministic Document nodes.
 - Build doc_id to Parquet row-group/row lookup metadata.
 - Build contentless FTS5 over title and content.
-- Build compact embeddings in bounded batches, starting with titles and source-aware chunks.
+- Build compact embeddings for titles and high-value chunks only in P0; broader embedding coverage is P1. FTS5 plus graph structure carries retrieval if embedding time runs short.
 - Record index versions and disk usage.
 
 ### Stage 2 — high-precision structure
@@ -434,7 +438,7 @@ Target gates, not fabricated results:
 
 ### HERB
 
-HERB is optional secondary evidence:
+HERB is out of P0 entirely; touch it only if every P0 exit gate has passed early. If used at all:
 
 - Use a small subset for employee-ID resolution and abstention.
 - Exclude team and customers oracle fields from retrieval.
@@ -487,98 +491,83 @@ Without HydraDB, the project degrades into a conventional document retriever wit
 - Ten consecutive live demo runs.
 - Fresh-clone sample quickstart before recording.
 
-## Six-day execution schedule
+## Five-day execution schedule (recompressed on Aug 15 night)
 
-### Aug 14 — safe repository and vertical slice
+The original six-day schedule assumed Aug 14 delivered the vertical slice and Aug 15 delivered the discovery layer. Neither happened: as of Aug 15 night the repository holds only planning files, the HydraDB image is pulled but has never run, and no code exists. The two lost days are absorbed by merging the old Aug 14+15 into Aug 16, applying the pre-emptive scope cuts above, and treating the PT deadline (Aug 21, 12:29 PM IST) as contingency only.
 
-- Initialize the project repository immediately; the workspace root is not currently a Git repository.
-- Ignore hydradb/, full datasets, database data, indexes, caches, logs, secrets, and checkpoints.
-- Add license and attribution skeleton.
-- Start HydraDB and prove HTTP/Bolt write/read.
-- Inspect at least one real document from all nine sources, but implement only the parser needed by the representative vertical slice tonight.
-- Build a slice-level FTS retrieval path sufficient for the vertical slice; full-corpus FTS belongs to Aug 15.
-- Implement ID registry and minimal Bolt loader.
-- Ingest a representative slice.
-- Answer one real question with a valid citation and HydraDB trace.
-- Run a vLLM connectivity and one-document structured-JSON smoke test. Move the throughput benchmark to Aug 15 if time is short.
-- Shallow-clone and pin the EnterpriseRAG-Bench evaluator reference; verify its command surface. A full evaluator run is not a day-one gate.
+### Aug 16 — vertical slice and full discovery
 
-Exit gate: one reproducible question flows from candidate retrieval through HydraDB evidence to a grounded answer. Do not start full-corpus extraction before this works.
+- Restore the hydradb reference clone (Downloads zip or fresh clone) into the gitignored hydradb/ path.
+- Start the pinned HydraDB container; prove HTTP and Bolt write/read round trips.
+- Verify the ingestion-gating behaviors from the constraints table against the live container: MERGE semantics, UNWIND batching, node and relationship ID identity.
+- Implement the ID registry with collision detection and the minimal Bolt loader.
+- Implement the source-aware parser needed by the vertical slice; inspect representative documents from all nine sources while parsing.
+- Register all 511,962 Document nodes and build contentless FTS5 over title and content as a background bulk job while coding continues.
+- Run the vLLM connectivity and one-document structured-JSON smoke test; provision the droplet first if it is not live.
+- Shallow-clone and pin the EnterpriseRAG-Bench evaluator reference; verify its command surface.
 
-Friday-evening cut order: defer the full vLLM throughput benchmark first, full parser fixtures second, and full-corpus FTS third. Keep a slice-level retrieval path, HydraDB round trip, ID/loader path, and one grounded vertical-slice answer. Those are the non-negotiable day-one proof.
+Exit gate: one reproducible question flows from candidate retrieval through HydraDB evidence to a grounded answer with a valid dsid citation. Do not start bulk extraction before this works.
 
-### Aug 15 — complete discovery and structural graph
+Evening cut order if short: defer the vLLM throughput benchmark, then full parser fixtures, then full-corpus FTS completion. Non-negotiable: HydraDB round trip, ID/loader path, slice-level retrieval, one grounded answer.
 
-- Register all 511,962 documents.
-- Build the full lexical index and bounded embedding batches.
+### Aug 17 — structure, entity resolution, and ontology
+
+- Rich structural parsers: Slack, Gmail, and GitHub guaranteed; add Linear and Jira only if the ingestion benchmark shows headroom.
+- Ingest high-confidence entities and references; finish relationship IDs and checkpoint/resume.
+- Benchmark ingestion throughput, batch sizes, session counts, disk growth, and query budgets.
 - Benchmark vLLM tokens/sec and documents/hour before fixing extraction tiers.
-- Complete rich structural parsers for Slack, Gmail, GitHub, Linear, and Jira.
-- For Drive, Confluence, Fireflies, and HubSpot, ingest document nodes and exact references, then prioritize them for claim extraction; defer exhaustive source-specific structural edges to P1.
-- Ingest high-confidence entities and references from the P0 parser set.
-- Finish relationship IDs and checkpoint/resume.
-- Benchmark 100k nodes/edges, batch sizes, sessions, disk growth, and query budgets.
-- Create the 100/400 evaluation split.
-- Implement the upstream answer JSONL adapter and pass a one-question evaluator smoke test.
-
-Exit gate: all documents are discoverable, replay is idempotent, the ingestion benchmark is recorded, and disk remains within budget.
-
-### Aug 16 — resolution, ontology, and claims
-
-- Implement strong-key and blocked entity resolution.
-- Add cannot-link rules and HydraDB graph evidence.
+- Implement strong-key and blocked entity resolution with cannot-link rules and HydraDB graph evidence.
 - Add Class, Predicate, ClaimGroup, Claim, Value, and EvidenceSpan schema.
 - Implement raw-to-canonical predicate alignment.
-- Run tier-1 extraction with evidence validation.
-- Add duplicate/source-lineage discounting.
-- Produce the entity-resolution/multi-hop demo.
+- Launch tier-1 LLM extraction (Drive, Confluence, Fireflies, HubSpot, profiles, highly referenced documents) as an overnight batch with evidence validation.
+- Create the seeded 100/400 evaluation split; implement the answer JSONL adapter and pass a one-question evaluator smoke test.
 
-Exit gate: entity resolution and ontology alignment are stored in HydraDB and explainable from evidence.
+Exit gate: replay-idempotent structural graph for the guaranteed sources, entity resolution stored and explainable in HydraDB, tier-1 extraction running overnight.
 
-### Aug 17 — conflict and answer quality
+### Aug 18 — conflicts, answer controller, and dev evaluation
 
-- Implement temporal/scope-aware conflict detection.
-- Add predicate authority profiles.
-- Implement typed controller and query templates.
-- Add bounded synthesis, citation validation, and abstention.
-- Run variants A–D on the development set.
-- Fix the weakest high-value category instead of adding features.
-- Freeze answer schema and prohibit mid-answer writes.
+- Implement temporal and scope-aware conflict detection with duplicate and source-lineage discounting.
+- Add predicate authority profiles and the trust breakdown.
+- Implement the typed deterministic controller and bounded query templates.
+- Add evidence-bounded synthesis, exact citation validation, and calibrated abstention.
+- Run variants A–D on the 100-question development set; fix the weakest high-value category instead of adding features.
+- Produce the entity-resolution/multi-hop demo and the conflict demo through the real pipeline.
+- Freeze the answer schema; prohibit mid-answer writes.
 
-Exit gate: all three demo scenarios work through the real pipeline and graph use shows measurable value over hybrid retrieval.
+Exit gate: all three demo scenarios (resolution/multi-hop, conflict, abstention) work end to end, and graph use shows measurable value over the hybrid baseline on the dev set.
 
-### Aug 18 — product and final evaluation
+### Aug 19 — product and final evaluation
 
-- Build unified Ask & Inspect UI.
-- Add evidence graph, resolution panel, conflict panel, and HydraDB trace.
-- Run locked evaluation and final 500-question configuration.
-- Run ablations and latency tests.
-- Build the public sample and optional hosted demo.
-- Write README from actual implementation, not planned features.
+- Build the unified Ask & Inspect UI: answer with citations, evidence subgraph, resolution panel, conflict panel, HydraDB trace, graph status.
+- Run ablations and latency tests; record all metrics.
+- Launch the locked 500-question evaluation as an overnight batch into Aug 20; it must not block daytime work.
+- Build the public sample quickstart; write the README from what is actually implemented.
 
-Exit gate: stable UI, recorded metrics, fresh sample quickstart, and no unimplemented README claims.
+Exit gate: stable UI, recorded dev metrics, fresh sample quickstart passing, no unimplemented README claims.
 
-### Aug 19 — submission freeze
+### Aug 20 — freeze, video, and submission
 
-- Pin HydraDB digest and dependency versions.
-- Run fresh-clone verification.
-- Complete README, setup, attribution, license, limitations, evaluation, and the without-HydraDB section.
-- Document team contributions.
-- Record the three-minute video.
-- Submit form, repository, and video.
+- Collect the overnight 500-question results into the README evaluation section.
+- Pin the HydraDB digest and dependency versions; run fresh-clone verification.
+- Complete README, setup, attribution, license, limitations, and the without-HydraDB section.
+- Reword README.md for the public repository (it currently says "Private development repository") and flip the repo to public.
+- Draft every submission-form answer in SUBMISSION.md (problem, what we built, HydraDB usage, tech stack, team contributions, links) so the official form is copy-paste.
+- Record the three-minute video; ten consecutive demo runs first.
+- Submit form, repository, and video by IST evening — about 16 hours before the PT deadline.
 - Make no architectural changes after validation.
 
-### Aug 20 — contingency only
+### Aug 21 until 12:29 PM IST — contingency only
 
-- Verify submission links and visibility.
+- Verify every submitted link opens in an incognito browser.
 - Fix only disqualifying or demo-blocking issues.
-- Do not leave evaluation, recording, or repository cleanup for this day.
+- Do not leave evaluation, recording, or repository cleanup for this window.
 
 ## Decision gates and fallbacks
 
 | Risk signal | Decision |
 |---|---|
 | vLLM throughput is below budget | Reduce extraction breadth; keep full retrieval coverage |
-| Embeddings are incomplete by Aug 16 | Ship complete FTS plus embeddings for titles/high-value chunks and disclose coverage |
+| Embeddings are incomplete by Aug 17 | Ship complete FTS plus embeddings for titles/high-value chunks and disclose coverage |
 | HydraDB store threatens disk budget | Keep all metadata/structure, reduce claim coverage, never duplicate bodies |
 | A source parser is unreliable | Store documents and only high-confidence references |
 | Parallel ingestion is slower | Use the best measured session count and safe larger batches |
@@ -614,17 +603,46 @@ Exit gate: stable UI, recorded metrics, fresh sample quickstart, and no unimplem
 - Optional deployed sample.
 - Three-minute video and completed form.
 
+- SUBMISSION.md with drafted answers for every official form field, so submission day is copy-paste.
+
 Never commit hydradb/, full datasets, database data, auth tokens, environment files, generated indexes, model artifacts, or evaluation secrets.
+
+## Official links
+
+- Submission form: forms.gle/GrMYKxLj9zPQcqqc8
+- Hackathon site (briefs, datasets, rules, FAQ): hackhydra.hydradb.com
+- Discord (support, office hours, announcements): discord.gg/D8cGSa9H9
+- HydraDB docs: docs.hydradb.com
+- HydraDB dashboard (instance and keys): dashboard.hydradb.com
+- HydraDB repo: github.com/hydra-db/hydradb
+
+## Before you submit — final gate from the participant guide
+
+Most disqualifications are a missing link, not a weak project. Check every item:
+
+- Submission form is complete.
+- GitHub repository is public and licensed.
+- README explains the project clearly.
+- Setup instructions actually work.
+- Demo video is 3 minutes or less.
+- Video link is accessible; test it in an incognito browser.
+- Deployed project link works, if one was given.
+- HydraDB usage is clearly explained.
+- Team members are listed correctly.
+- All work began on or after August 12.
+- Submitted before 11:59 PM PT on August 20 (12:29 PM IST on August 21).
 
 ## Three-minute demo
 
-- 0:00–0:20 — Problem: scattered, aliased, duplicated, contradictory enterprise facts.
-- 0:20–0:55 — Ask a real question; show grounded answer and citations.
-- 0:55–1:25 — Reveal the HydraDB path resolving an ambiguous identity and connecting evidence.
-- 1:25–1:55 — Show conflicting versions, validity/source breakdown, and justified interpretation.
-- 1:55–2:15 — Ask an unanswerable question and show evidence insufficiency.
-- 2:15–2:40 — Show hybrid baseline versus graph result and one ablation.
-- 2:40–3:00 — Show ontology, native path procedure, bounded hops, epoch, and what disappears without HydraDB.
+The guide mandates four beats in this exact order: the problem, the project, the demo, HydraDB. Anything after the 3-minute mark may not be reviewed, so the video ends at 2:55. Unlisted YouTube links are fine as long as judges can open them.
+
+- 0:00–0:20 — The problem: enterprise facts are scattered, aliased, duplicated, and contradictory across nine tools.
+- 0:20–0:35 — The project: TraceGraph, an enterprise truth debugger on HydraDB that resolves identities, preserves conflicts, and proves every answer with an evidence path.
+- 0:35–1:00 — Demo: ask a real question; show the grounded answer with exact dsid citations.
+- 1:00–1:30 — Demo: reveal the HydraDB path resolving an ambiguous identity (an alias cluster of the "Sam / @soham / S. Ratnaparkhi" class from the guide) and connecting multi-hop evidence.
+- 1:30–1:55 — Demo: show conflicting versions with validity, source authority, and the trust breakdown, then the justified interpretation.
+- 1:55–2:10 — Demo: ask an unanswerable question; show explicit abstention with the evidence-sufficiency verdict.
+- 2:10–2:55 — HydraDB: ontology, native path procedure, bounded hops, epoch/bookmark in the trace, the measured graph-over-hybrid ablation uplift, and the one-sentence "what disappears without HydraDB".
 
 Choose stable real examples after the pipeline finds them. Curated questions are acceptable; hard-coded answers are not.
 
@@ -651,6 +669,6 @@ The project is ready only when:
 2. HydraDB: external unmodified Docker service through Bolt/HTTP.
 3. LLM: self-hosted gpt-oss-120b on DigitalOcean AMD GPU through vLLM.
 4. Primary corpus: EnterpriseRAG-Bench.
-5. Deadline: Aug 20, 2026; target submission Aug 19.
+5. Deadline: Aug 20, 2026, 11:59 PM PT (Aug 21, 12:29 PM IST); target submission Aug 20 IST evening.
 6. Product: web UI with focused interactive evidence graph.
 7. Positioning: enterprise truth debugger, not generic chat with documents.
