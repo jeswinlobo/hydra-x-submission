@@ -140,28 +140,43 @@ def normalise_content(raw: str) -> str:
     already plain text changes nothing.
     """
     text = raw
-    if text[:1] in "[{" and "\\n" in text[:400]:
+
+    def as_json(candidate: str) -> str | None:
         try:
-            decoded = json.loads(text)
+            decoded = json.loads(candidate)
         except ValueError:
-            decoded = None
+            return None
         if isinstance(decoded, str):
-            text = decoded
-        elif isinstance(decoded, list) and decoded and all(
+            return decoded
+        if isinstance(decoded, list) and decoded and all(
             isinstance(part, str) for part in decoded
         ):
-            text = "\n".join(decoded)
+            return "\n".join(decoded)
+        return None
 
-    # Runs after the JSON branch as well as instead of it: part of the corpus is
-    # double-escaped, so a successful decode can still leave literal escapes
-    # behind. Unescape only the sequences that actually occur rather than
-    # running a general unicode_escape decode, which would mangle UTF-8.
+    if text[:1] in "[{":
+        decoded = as_json(text)
+        if decoded is not None:
+            text = decoded
+
+    # Part of the corpus escapes an apostrophe as \' , which is not valid JSON,
+    # so the decode above fails and leaves the wrapper in place. Unescape the
+    # sequences that actually occur — a general unicode_escape decode would
+    # mangle UTF-8 — and then strip the array wrapper the failed decode left
+    # behind, because a body beginning `["From:` no longer starts a line with
+    # `From:` and every line-anchored header pattern misses it.
     if "\\n" in text or "\\'" in text or '\\"' in text or "\\t" in text:
         for escaped, plain in (
             ("\\r\\n", "\n"), ("\\n", "\n"), ("\\t", "\t"),
             ("\\'", "'"), ('\\"', '"'),
         ):
             text = text.replace(escaped, plain)
+
+    stripped = text.strip()
+    if stripped.startswith('["') and stripped.endswith('"]'):
+        text = stripped[2:-2]
+    elif stripped.startswith('"') and stripped.endswith('"') and len(stripped) > 1:
+        text = stripped[1:-1]
     return text
 
 

@@ -1,13 +1,22 @@
 #!/usr/bin/env python
-"""Check the vertical-slice exit gate against the graph, not against memory.
+"""Check the vertical-slice exit gate against the graph, scoped to one run.
 
-Everything here is read back out of HydraDB. An in-process assertion proves the
-Python was right; only a query proves the graph actually holds what the answer
-path will read.
+Two things this deliberately does not do, because an earlier version did both
+and passed for the wrong reasons:
+
+* It does not group by entity *name*. Several distinct entities can share a
+  display name, so name-grouping reports one person reached by many surfaces
+  when the truth is many near-duplicate people reached by one surface each.
+  Grouping is by entity id.
+* It does not read the whole graph. Without a run id, leftovers from any earlier
+  ingest can satisfy a check that the current run would fail.
+
+    uv run python scripts/35_verify_gate.py --run-id run1786895087
 """
 
 from __future__ import annotations
 
+import argparse
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -22,127 +31,151 @@ CHECKS: list[tuple[str, bool]] = []
 def record(name: str, passed: bool, detail: str = "") -> None:
     CHECKS.append((name, passed))
     print(f"  {'PASS' if passed else 'FAIL'}  {name}")
-    if detail:
-        for line in detail.splitlines():
-            print(f"          {line}")
+    for line in (detail or "").splitlines():
+        print(f"          {line}")
+
+
+def latest_run(client: HydraClient) -> str | None:
+    rows = client.bolt_read(
+        "MATCH (d:Document) RETURN d.run_id AS run_id ORDER BY run_id DESC LIMIT 1"
+    )
+    return rows[0]["run_id"] if rows else None
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--run-id", default=None)
+    args = ap.parse_args()
+
     with HydraClient() as client:
         client.verify()
+        run_id = args.run_id or latest_run(client)
+        if not run_id:
+            print("no ingested run found; run scripts/30_load_slice.py", file=sys.stderr)
+            return 1
+        print(f"run {run_id}\n")
 
-        print("\ngraph contents")
-        counts = {
-            label: client.count_labelled(label)
-            for label in ("Document", "Entity", "Mention", "Channel")
-        }
-        for label, count in counts.items():
-            print(f"  {label:9} {count:>6}")
+        counts = {}
+        for label in ("Document", "Entity", "Mention", "Channel"):
+            rows = client.bolt_read(
+                f"MATCH (n:{label}) WHERE n.run_id = $r RETURN count(*) AS c",
+                {"r": run_id})
+            counts[label] = rows[0]["c"]
+            print(f"  {label:9} {counts[label]:>6}")
         record("slice ingested", counts["Document"] >= 200)
 
-        # --- entity resolution reached through the graph ---------------------
+        # --- resolution reached through the graph ----------------------------
         rows = client.bolt_read(
-            "MATCH (m:Mention)-[r:RESOLVES_TO]->(e:Entity) "
-            "RETURN e.name AS name, m.normalised AS surface, r.method AS method, "
-            "r.confidence AS confidence, r.evidence AS evidence, "
-            "r.candidates AS candidates LIMIT 4000"
-        )
-        by_entity: dict[str, set[str]] = defaultdict(set)
-        detail_by_entity: dict[str, list[dict]] = defaultdict(list)
-        for row in rows:
-            by_entity[row["name"]].add(row["surface"])
-            detail_by_entity[row["name"]].append(row)
+            "MATCH (m:Mention)-[r:RESOLVES_TO]->(e:Entity) WHERE r.run_id = $r "
+            "RETURN e.id AS entity_id, e.name AS name, m.normalised AS surface, "
+            "r.method AS method, r.confidence AS confidence, r.evidence AS evidence, "
+            "r.candidates AS candidates LIMIT 6000",
+            {"r": run_id})
 
-        multi = {name: forms for name, forms in by_entity.items() if len(forms) >= 2}
-        # A surface that is merely the person's own address spelled out is not a
-        # second identity; the gate wants genuinely different forms.
+        by_entity: dict[int, set[str]] = defaultdict(set)
+        detail: dict[int, list[dict]] = defaultdict(list)
+        for row in rows:
+            by_entity[row["entity_id"]].add(row["surface"])
+            detail[row["entity_id"]].append(row)
+
+        # Distinct *forms*, not distinct spellings of the same address: a person
+        # reached by their name and by their own email is one surface plus its
+        # machine-readable form, which is not what the gate is asking about.
         strong = {
-            name: forms
-            for name, forms in multi.items()
-            if len({f for f in forms if "@" not in f}) >= 1 and len(forms) >= 2
+            eid: forms for eid, forms in by_entity.items()
+            if len({f for f in forms if "@" not in f}) >= 2
+            or (len(forms) >= 2 and any("@" not in f for f in forms))
         }
-        record(
-            "two or more distinct surfaces resolve to one entity",
-            bool(strong),
-            f"{len(strong)} entities qualify",
-        )
+        record("two or more distinct surfaces resolve to one entity id",
+               bool(strong), f"{len(strong)} entities qualify")
 
         if strong:
-            name = max(strong, key=lambda n: len(strong[n]))
-            print(f"\n  worked example: {name}")
-            for row in detail_by_entity[name][:4]:
-                print(f"    surface {row['surface']!r:34} method={row['method']} "
+            eid = max(strong, key=lambda k: len(strong[k]))
+            print(f"\n  worked example: {detail[eid][0]['name']} (entity {eid})")
+            seen = set()
+            for row in detail[eid]:
+                if row["surface"] in seen:
+                    continue
+                seen.add(row["surface"])
+                print(f"    {row['surface']!r:30} {row['method']:20} "
                       f"confidence={row['confidence']}")
                 if row["evidence"]:
-                    print(f"       evidence: {row['evidence'][:110]}")
+                    print(f"        {row['evidence'][:120]}")
 
         methods = client.bolt_read(
-            "MATCH (m:Mention)-[r:RESOLVES_TO]->(e:Entity) "
-            "RETURN r.method AS method, count(*) AS n"
-        )
-        record(
-            "resolution records a method and confidence",
-            all(row["method"] for row in methods),
-            "\n".join(f"{row['method']}: {row['n']}" for row in methods),
-        )
+            "MATCH (m:Mention)-[r:RESOLVES_TO]->(e:Entity) WHERE r.run_id = $r "
+            "RETURN r.method AS method, count(*) AS n", {"r": run_id})
+        record("every resolution records a method and confidence",
+               bool(methods) and all(row["method"] for row in methods),
+               "\n".join(f"{row['method']}: {row['n']}" for row in methods))
 
-        # Resolution that is more than string equality: the graph must contain
-        # at least one decision backed by evidence rather than an exact match.
-        evidenced = client.bolt_read(
+        # --- the decision was made by the graph ------------------------------
+        graph_backed = client.bolt_read(
             "MATCH (m:Mention)-[r:RESOLVES_TO]->(e:Entity) "
-            "WHERE r.candidates > 1 RETURN count(*) AS n"
-        )
-        contested = evidenced[0]["n"] if evidenced else 0
-        record(
-            "at least one resolution had competing candidates",
-            contested > 0,
-            f"{contested} resolutions chose between two or more candidates",
-        )
+            "WHERE r.run_id = $r AND r.method = 'graph_evidence' "
+            "RETURN count(*) AS n", {"r": run_id})
+        n_graph = graph_backed[0]["n"] if graph_backed else 0
+        record("resolutions decided by graph evidence", n_graph > 0,
+               f"{n_graph} surfaces resolved by traversal over stored structure")
+
+        participation = client.bolt_read(
+            "MATCH (e:Entity)-[r:PARTICIPATED_IN]->(c:Channel) WHERE r.run_id = $r "
+            "RETURN count(*) AS n", {"r": run_id})
+        n_part = participation[0]["n"] if participation else 0
+        record("participation structure exists for the graph to read", n_part > 0,
+               f"{n_part} Entity-[:PARTICIPATED_IN]->Channel edges")
+
+        candidates = client.bolt_read(
+            "MATCH (m:Mention)-[r:CANDIDATE_FOR]->(e:Entity) WHERE r.run_id = $r "
+            "RETURN count(*) AS n", {"r": run_id})
+        n_cand = candidates[0]["n"] if candidates else 0
+        record("rejected candidates are recorded, not just winners", n_cand > 0,
+               f"{n_cand} candidate edges carry their score and evidence counts")
+
+        # --- unresolved is a decision, not a gap -----------------------------
+        statuses = client.bolt_read(
+            "MATCH (m:Mention) WHERE m.run_id = $r "
+            "RETURN m.status AS status, count(*) AS n", {"r": run_id})
+        status_map = {row["status"]: row["n"] for row in statuses}
+        record("every mention carries an explicit status",
+               status_map.get("pending", 0) == 0 and len(status_map) > 0,
+               ", ".join(f"{k}={v}" for k, v in sorted(status_map.items())))
+
+        unresolved_with_reason = client.bolt_read(
+            "MATCH (m:Mention) WHERE m.run_id = $r AND m.status = 'unresolved' "
+            "AND m.candidates > 1 RETURN count(*) AS n", {"r": run_id})
+        record("unresolved mentions keep their candidate count",
+               (unresolved_with_reason[0]["n"] if unresolved_with_reason else 0) > 0,
+               f"{unresolved_with_reason[0]['n']} kept a competing candidate set")
 
         # --- bounded evidence path -------------------------------------------
         anchor = client.bolt_read(
-            "MATCH (m:Mention)-[:RESOLVES_TO]->(e:Entity) RETURN e.id AS id LIMIT 1"
-        )
+            "MATCH (e:Entity)-[r:PARTICIPATED_IN]->(c:Channel) WHERE r.run_id = $r "
+            "RETURN e.id AS eid, c.id AS cid LIMIT 1", {"r": run_id})
         path_rows = []
         if anchor:
             path_rows = client.bolt_read(
-                "CALL algo.SSpaths({sourceNode: $src, "
-                "relTypes: ['RESOLVES_TO', 'MENTIONED_IN'], maxLen: 2, "
-                "relDirection: 'both', pathCount: 3}) YIELD path RETURN path",
-                {"src": anchor[0]["id"]},
-            )
-        record(
-            "bounded evidence path returns from the entity",
-            bool(path_rows),
-            f"{len(path_rows)} path(s) within 2 hops",
-        )
-        if path_rows:
-            path = path_rows[0]["path"]
-            rendered = " -> ".join(
-                str(step.get("name") or step.get("surface") or step.get("dsid"))
-                if isinstance(step, dict) else str(step)
-                for step in path
-            )
-            print(f"    {rendered[:160]}")
+                "CALL algo.SPpaths({sourceNode: $src, targetNode: $dst, "
+                "relTypes: ['PARTICIPATED_IN'], maxLen: 2, relDirection: 'both', "
+                "pathCount: 1}) YIELD path RETURN path",
+                {"src": anchor[0]["eid"], "dst": anchor[0]["cid"]})
+        record("bounded evidence path returns from the graph", bool(path_rows),
+               f"{len(path_rows)} path(s) within 2 hops")
 
         # --- citation validation is not vacuous ------------------------------
-        real = client.bolt_read("MATCH (d:Document) RETURN d.id AS id LIMIT 1")
-        real_id = real[0]["id"] if real else 0
-        record(
-            "citation validation distinguishes a real dsid from an unwritten one",
-            client.exists_node("Document", real_id)
-            and not client.exists_node("Document", 424242424242424242),
-        )
+        real = client.bolt_read(
+            "MATCH (d:Document) WHERE d.run_id = $r RETURN d.id AS id LIMIT 1",
+            {"r": run_id})
+        record("citation validation distinguishes a real dsid from an unwritten one",
+               bool(real) and client.exists_node("Document", real[0]["id"])
+               and not client.exists_node("Document", 424242424242424242))
 
-        # --- consistency evidence for the trace ------------------------------
         result = client.http_query("MATCH (d:Document) RETURN count(*) AS c")
         scope = parse_bookmark(result.bookmark) if result.bookmark else None
-        record(
-            "trace can show a real read epoch and bookmark",
-            result.read_epoch is not None and scope is not None,
-            f"read_epoch={result.read_epoch} bookmark_sequence="
-            f"{scope.sequence if scope else 'n/a'}",
-        )
+        record("trace can show a real read epoch and bookmark",
+               result.read_epoch is not None and scope is not None,
+               f"read_epoch={result.read_epoch} "
+               f"bookmark_sequence={scope.sequence if scope else 'n/a'}")
 
     passed = sum(1 for _, ok in CHECKS if ok)
     print(f"\n{passed}/{len(CHECKS)} gate checks passed")

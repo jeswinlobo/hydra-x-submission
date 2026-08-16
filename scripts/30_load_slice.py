@@ -1,23 +1,27 @@
 #!/usr/bin/env python
-"""Build the vertical slice: parse, resolve, and load a bounded neighbourhood.
+"""Build the vertical slice: parse, load structure, then resolve through the graph.
 
-The slice is small on purpose. Its job is to prove the whole path end to end —
-Parquet to parser to resolution to graph to a bounded evidence path — not to
-cover the corpus. Bulk ingestion only starts once this works and has been
-benchmarked.
+The order matters and is the point of this script. Structure goes in first —
+documents, mentions, channels, and the participation those imply — and only then
+are ambiguous surfaces resolved, by querying HydraDB over that structure. An
+earlier version decided everything in Python and used the graph as a place to
+file the answer, which is precisely the arrangement the project exists to argue
+against.
 
-Selection is channel-driven rather than random: a Slack channel plus the email
-around it is a neighbourhood where the same people appear under different
-surfaces, which is what makes resolution testable at all.
+Every node and edge is stamped with a run id, so a run can be inspected and torn
+down without disturbing another, and every id passes through the collision
+registry before it is written.
 
-    uv run python scripts/30_load_slice.py --channel eng-runtime --limit 600
+    uv run python scripts/30_load_slice.py --channel eng-runtime --limit 300
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import sys
-from collections import Counter, defaultdict
+import time
+from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -25,12 +29,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import pyarrow.parquet as pq  # noqa: E402
 
 from tracegraph import config  # noqa: E402
+from tracegraph.graph_resolve import GraphEvidence  # noqa: E402
 from tracegraph.hydra_client import HydraClient  # noqa: E402
-from tracegraph.ids import edge_id, node_id  # noqa: E402
+from tracegraph.ids import IdRegistry, edge_identity, node_identity  # noqa: E402
 from tracegraph.loader import Checkpointer, upsert_edges, upsert_nodes  # noqa: E402
 from tracegraph.parsers import normalise_content, parse_document  # noqa: E402
-from tracegraph.parsers.base import BOT, PERSON  # noqa: E402
-from tracegraph.resolve import METHOD_UNRESOLVED, Resolver  # noqa: E402
+from tracegraph.parsers.base import PERSON  # noqa: E402
+from tracegraph.resolve import (  # noqa: E402
+    METHOD_GRAPH_EVIDENCE,
+    METHOD_UNRESOLVED,
+    Resolver,
+)
 
 DOC = "Document"
 ENTITY = "Entity"
@@ -38,12 +47,51 @@ MENTION = "Mention"
 CHANNEL = "Channel"
 
 
+class Minter:
+    """Mints ids and registers every one before it reaches the graph.
+
+    The registry is not an optional debugging aid: HydraDB resolves a vertex by
+    id without consulting its label, so two identities folding onto one 63-bit
+    value are the same vertex to the engine. Routing every id through here is
+    what makes that a loud failure instead of a silent merge.
+    """
+
+    def __init__(self, registry: IdRegistry) -> None:
+        self.registry = registry
+        self._pending: list = []
+
+    def node(self, node_type: str, natural_key: str) -> int:
+        row = node_identity(node_type, natural_key)
+        self._pending.append(row)
+        return row.id
+
+    def edge(self, edge_type: str, src: int, dst: int, scope: str = "") -> int:
+        row = edge_identity(edge_type, src, dst, scope)
+        self._pending.append(row)
+        return row.id
+
+    def flush(self) -> int:
+        """Register everything minted so far. Raises on a collision."""
+        if not self._pending:
+            return 0
+        registered = self.registry.register_many(self._pending)
+        self._pending.clear()
+        return registered
+
+
+def fingerprint(rows: list[dict]) -> str:
+    """Content hash of a batch, so a checkpoint cannot skip changed input."""
+    digest = hashlib.sha256()
+    for row in rows:
+        digest.update(repr(sorted(row.items())).encode())
+    return digest.hexdigest()[:16]
+
+
 def select_slice(channel: str, limit: int, email_limit: int) -> list[dict]:
     """Documents from one Slack channel, plus internal email for identities.
 
-    Slack alone cannot resolve anything: its speakers are bare handles. The
-    email is what supplies names and addresses, so the slice deliberately spans
-    both sources.
+    Slack alone resolves nothing — its speakers are bare handles — so the slice
+    deliberately spans both sources.
     """
     parquet = pq.ParquetFile(config.DOCUMENTS_PARQUET)
     slack: list[dict] = []
@@ -53,8 +101,7 @@ def select_slice(channel: str, limit: int, email_limit: int) -> list[dict]:
         batch_size=4000, columns=["doc_id", "source_type", "title", "content"]
     ):
         data = batch.to_pydict()
-        source = data["source_type"][0]
-        if source not in ("slack", "gmail"):
+        if data["source_type"][0] not in ("slack", "gmail"):
             continue
         for i in range(batch.num_rows):
             st = data["source_type"][i]
@@ -70,198 +117,277 @@ def select_slice(channel: str, limit: int, email_limit: int) -> list[dict]:
                 gmail.append(row)
         if len(slack) >= limit and len(gmail) >= email_limit:
             break
-
     return gmail + slack
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--channel", default="eng-runtime")
-    ap.add_argument("--limit", type=int, default=400, help="Slack documents")
-    ap.add_argument("--email-limit", type=int, default=400, help="Gmail documents")
-    ap.add_argument("--job", default="slice", help="checkpoint job name")
+    ap.add_argument("--limit", type=int, default=300, help="Slack documents")
+    ap.add_argument("--email-limit", type=int, default=600, help="Gmail documents")
+    ap.add_argument("--run-id", default=None, help="defaults to a timestamp")
     args = ap.parse_args()
 
-    print(f"selecting slice: #{args.channel} + internal email")
+    run_id = args.run_id or f"run{int(time.time())}"
+    job = f"slice:{run_id}"
+    print(f"run {run_id}")
+
     docs = select_slice(args.channel, args.limit, args.email_limit)
-    by_source = Counter(d["source_type"] for d in docs)
-    print(f"  {len(docs)} documents {dict(by_source)}")
     if not docs:
         print("no documents matched; try another channel", file=sys.stderr)
         return 1
+    print(f"  {len(docs)} documents {dict(Counter(d['source_type'] for d in docs))}")
 
     # --- parse ---------------------------------------------------------------
-    parsed = {}
-    bodies = {}
-    bad_offsets = 0
+    parsed, bad_offsets = {}, 0
     for d in docs:
-        # Offsets index into the normalised body, so verification has to use it
-        # too. This is also the body an evidence span is later checked against.
         body = normalise_content(d["content"])
-        bodies[d["doc_id"]] = body
         p = parse_document(d["doc_id"], d["source_type"], d["title"], d["content"])
         verified = p.verified_mentions(body)
         bad_offsets += len(p.mentions) - len(verified)
         p.mentions = verified
         parsed[d["doc_id"]] = p
 
-    mention_count = sum(len(p.mentions) for p in parsed.values())
-    print(f"  parsed: {mention_count} mentions with verified offsets, "
-          f"{bad_offsets} rejected for bad offsets")
+    total_mentions = sum(len(p.mentions) for p in parsed.values())
+    print(f"  parsed {total_mentions} mentions, {bad_offsets} rejected for bad offsets")
 
-    # --- resolve -------------------------------------------------------------
+    # --- identities and the decisions that need no graph ---------------------
+    #
+    # An address is an identity and a unique token match is a lookup; neither is
+    # a question about structure, so neither goes to the engine.
     resolver = Resolver()
     for d in docs:
         p = parsed[d["doc_id"]]
         resolver.observe(d["doc_id"], d["source_type"], p.mentions,
                          channel=p.attributes.get("channel"))
-    print(f"  identities built from email: {len(resolver.people)}")
+    merged = resolver.merge_same_person()
+    print(f"  {len(resolver.people)} identities from email "
+          f"({merged} alternate addresses merged)")
 
-    resolutions = []
+    direct, ambiguous = [], []
     for d in docs:
         p = parsed[d["doc_id"]]
         channel = p.attributes.get("channel")
         for m in p.mentions:
-            resolutions.append((d["doc_id"], m,
-                                resolver.resolve_mention(m, d["doc_id"], channel)))
+            r = resolver.resolve_mention(m, d["doc_id"], channel, use_graph_tier=False)
+            (direct if r.resolved else ambiguous).append((d["doc_id"], m, r, channel))
+    print(f"  {len(direct)} resolved without the graph, {len(ambiguous)} need it")
 
-    # Second pass. The first pass could only use email, which carries no
-    # channel, so every ambiguous handle fell through to unresolved. Confident
-    # resolutions inside Slack documents establish who actually participates
-    # where, which is the evidence the graph tier needs.
-    channel_by_doc = {
-        doc_id: p.attributes["channel"]
-        for doc_id, p in parsed.items()
-        if p.attributes.get("channel")
-    }
-    learned = resolver.learn_participation(
-        (r for _, _, r in resolutions), channel_by_doc
-    )
-    if learned:
-        print(f"  learned {learned} channel participations; re-resolving")
-        resolutions = [
-            (doc_id, m, resolver.resolve_mention(m, doc_id,
-                                                 channel_by_doc.get(doc_id)))
-            for doc_id, m, _ in resolutions
-        ]
-
-    by_method = Counter(r.method for _, _, r in resolutions)
-    resolved = sum(1 for _, _, r in resolutions if r.resolved)
-    print(f"  resolved {resolved}/{len(resolutions)} mentions {dict(by_method)}")
-
-    # --- load ----------------------------------------------------------------
+    registry = IdRegistry()
+    minter = Minter(registry)
     checkpointer = Checkpointer()
+
     with HydraClient() as client:
         client.verify()
 
-        doc_rows = [
-            {"vertex": node_id(DOC, d["doc_id"]), "dsid": d["doc_id"],
-             "source_type": d["source_type"], "title": d["title"][:500]}
-            for d in docs
-        ]
-        upsert_nodes(client, DOC, doc_rows, job=args.job,
-                     properties=["dsid", "source_type", "title"],
-                     checkpointer=checkpointer)
-
-        entity_rows = [
-            {"vertex": node_id(ENTITY, person.key), "key": person.key,
-             "name": person.display_name, "kind": PERSON,
-             "emails": ";".join(sorted(person.emails)),
-             "domains": ";".join(sorted(person.domains))}
-            for person in resolver.people.values()
-        ]
-        upsert_nodes(client, ENTITY, entity_rows, job=args.job,
-                     properties=["key", "name", "kind", "emails", "domains"],
-                     checkpointer=checkpointer)
-
+        # --- phase one: structure -------------------------------------------
+        doc_ids = {d["doc_id"]: minter.node(DOC, d["doc_id"]) for d in docs}
+        entity_ids = {key: minter.node(ENTITY, key) for key in resolver.people}
         channels = sorted({p.attributes["channel"] for p in parsed.values()
                            if p.attributes.get("channel")})
-        if channels:
-            upsert_nodes(
-                client, CHANNEL,
-                [{"vertex": node_id(CHANNEL, c), "name": c} for c in channels],
-                job=args.job, properties=["name"], checkpointer=checkpointer,
-            )
+        channel_ids = {name: minter.node(CHANNEL, name) for name in channels}
 
-        # Mentions are nodes so provenance stays independently inspectable: one
-        # surface, its offsets, and the decision made about it.
-        mention_rows = []
-        mentioned_in = []
-        resolves_to = []
-        sent_in = []
-        for doc_id, mention, resolution in resolutions:
-            natural = f"{doc_id}:{mention.start}:{mention.end}"
-            mid = node_id(MENTION, natural)
-            did = node_id(DOC, doc_id)
-            mention_rows.append({
-                "vertex": mid, "surface": mention.surface,
-                "normalised": mention.surface.casefold(),
-                "kind": mention.kind, "role": mention.role,
-                "start": mention.start, "end": mention.end, "dsid": doc_id,
-            })
-            mentioned_in.append({
-                "src": mid, "dst": did,
-                "eid": edge_id("MENTIONED_IN", mid, did),
-                "role": mention.role,
-            })
-            if resolution.resolved:
-                eid_target = node_id(ENTITY, resolution.person_key)
-                resolves_to.append({
-                    "src": mid, "dst": eid_target,
-                    "eid": edge_id("RESOLVES_TO", mid, eid_target),
-                    "method": resolution.method,
-                    "confidence": resolution.confidence,
-                    "evidence": resolution.evidence[:400],
-                    "candidates": len(resolution.candidates),
-                })
+        mention_ids: dict[tuple[str, int, int], int] = {}
+        for doc_id, p in parsed.items():
+            for m in p.mentions:
+                mention_ids[(doc_id, m.start, m.end)] = minter.node(
+                    MENTION, f"{doc_id}:{m.start}:{m.end}")
+        minter.flush()
 
-        for doc_id, parsed_doc in parsed.items():
-            channel = parsed_doc.attributes.get("channel")
-            if channel:
-                did = node_id(DOC, doc_id)
-                cid = node_id(CHANNEL, channel)
-                sent_in.append({"src": did, "dst": cid,
-                                "eid": edge_id("SENT_IN", did, cid)})
+        def load_nodes(label, rows, props):
+            if rows:
+                upsert_nodes(client, label, rows, job=f"{job}:{fingerprint(rows)}",
+                             properties=props, checkpointer=checkpointer)
 
-        upsert_nodes(client, MENTION, mention_rows, job=args.job,
-                     properties=["surface", "normalised", "kind", "role",
-                                 "start", "end", "dsid"],
-                     checkpointer=checkpointer)
-        upsert_edges(client, "MENTIONED_IN", mentioned_in, job=args.job,
+        load_nodes(DOC, [
+            {"vertex": doc_ids[d["doc_id"]], "dsid": d["doc_id"],
+             "source_type": d["source_type"], "title": d["title"][:500],
+             "run_id": run_id}
+            for d in docs
+        ], ["dsid", "source_type", "title", "run_id"])
+
+        load_nodes(ENTITY, [
+            {"vertex": entity_ids[key], "key": key, "name": person.display_name,
+             "kind": PERSON, "emails": ";".join(sorted(person.emails))[:400],
+             "domains": ";".join(sorted(person.domains))[:200], "run_id": run_id}
+            for key, person in resolver.people.items()
+        ], ["key", "name", "kind", "emails", "domains", "run_id"])
+
+        load_nodes(CHANNEL, [
+            {"vertex": cid, "name": name, "run_id": run_id}
+            for name, cid in channel_ids.items()
+        ], ["name", "run_id"])
+
+        # Mentions carry their own resolution status, so an unresolved surface
+        # is a recorded decision rather than a missing edge. Absence of an edge
+        # cannot otherwise be told apart from a failed write.
+        load_nodes(MENTION, [
+            {"vertex": mention_ids[(doc_id, m.start, m.end)],
+             "surface": m.surface[:300], "normalised": m.surface.casefold()[:300],
+             "kind": m.kind, "role": m.role, "start": m.start, "end": m.end,
+             "dsid": doc_id, "run_id": run_id,
+             "status": "pending", "method": "", "candidates": 0, "reason": ""}
+            for doc_id, p in parsed.items() for m in p.mentions
+        ], ["surface", "normalised", "kind", "role", "start", "end", "dsid",
+            "run_id", "status", "method", "candidates", "reason"])
+
+        mentioned_in = [
+            {"src": mention_ids[(doc_id, m.start, m.end)], "dst": doc_ids[doc_id],
+             "eid": minter.edge("MENTIONED_IN",
+                                mention_ids[(doc_id, m.start, m.end)],
+                                doc_ids[doc_id]),
+             "role": m.role, "run_id": run_id}
+            for doc_id, p in parsed.items() for m in p.mentions
+        ]
+        upsert_edges(client, "MENTIONED_IN", mentioned_in,
+                     job=f"{job}:{fingerprint(mentioned_in)}",
                      source_label=MENTION, target_label=DOC,
-                     properties=["role"], checkpointer=checkpointer)
-        upsert_edges(client, "RESOLVES_TO", resolves_to, job=args.job,
-                     source_label=MENTION, target_label=ENTITY,
-                     properties=["method", "confidence", "evidence", "candidates"],
-                     checkpointer=checkpointer)
+                     properties=["role", "run_id"], checkpointer=checkpointer)
+
+        sent_in = [
+            {"src": doc_ids[doc_id], "dst": channel_ids[p.attributes["channel"]],
+             "eid": minter.edge("SENT_IN", doc_ids[doc_id],
+                                channel_ids[p.attributes["channel"]]),
+             "run_id": run_id}
+            for doc_id, p in parsed.items() if p.attributes.get("channel")
+        ]
         if sent_in:
-            upsert_edges(client, "SENT_IN", sent_in, job=args.job,
-                         source_label=DOC, target_label=CHANNEL,
+            upsert_edges(client, "SENT_IN", sent_in,
+                         job=f"{job}:{fingerprint(sent_in)}", source_label=DOC,
+                         target_label=CHANNEL, properties=["run_id"],
                          checkpointer=checkpointer)
 
-        print("\ngraph:")
+        # Direct resolutions, and the participation they imply. Participation is
+        # what the graph tier reads, so it has to exist before scoring runs.
+        resolves, participation = [], {}
+        for doc_id, m, r, channel in direct:
+            mid = mention_ids[(doc_id, m.start, m.end)]
+            target = entity_ids[r.person_key]
+            resolves.append({
+                "src": mid, "dst": target,
+                "eid": minter.edge("RESOLVES_TO", mid, target),
+                "method": r.method, "confidence": r.confidence,
+                "evidence": r.evidence[:400], "candidates": len(r.candidates),
+                "run_id": run_id,
+            })
+            if channel:
+                participation.setdefault((r.person_key, channel), {
+                    "src": target, "dst": channel_ids[channel],
+                    "eid": minter.edge("PARTICIPATED_IN", target,
+                                       channel_ids[channel]),
+                    "run_id": run_id,
+                })
+        minter.flush()
+
+        if resolves:
+            upsert_edges(client, "RESOLVES_TO", resolves,
+                         job=f"{job}:direct:{fingerprint(resolves)}",
+                         source_label=MENTION, target_label=ENTITY,
+                         properties=["method", "confidence", "evidence",
+                                     "candidates", "run_id"],
+                         checkpointer=checkpointer)
+        if participation:
+            rows = list(participation.values())
+            upsert_edges(client, "PARTICIPATED_IN", rows,
+                         job=f"{job}:{fingerprint(rows)}", source_label=ENTITY,
+                         target_label=CHANNEL, properties=["run_id"],
+                         checkpointer=checkpointer)
+        print(f"  structure loaded: {len(participation)} participation edges")
+
+        # --- phase two: the graph decides ------------------------------------
+        evidence = GraphEvidence(client, run_id)
+        graph_resolves, candidate_edges, unresolved = [], [], []
+        decided = 0
+
+        for doc_id, m, r, channel in ambiguous:
+            mid = mention_ids[(doc_id, m.start, m.end)]
+            candidates = {
+                entity_ids[key]: resolver.people[key].display_name
+                for key in r.candidates if key in entity_ids
+            }
+            if not candidates:
+                unresolved.append((mid, METHOD_UNRESOLVED, 0, r.evidence))
+                continue
+
+            decision = evidence.score_candidates(
+                candidates, doc_ids[doc_id],
+                channel_ids.get(channel) if channel else None,
+            )
+
+            # Every candidate considered is recorded, so a rejected one can be
+            # inspected rather than inferred from its absence.
+            for entry in decision.scored[:8]:
+                candidate_edges.append({
+                    "src": mid, "dst": entry.entity_id,
+                    "eid": minter.edge("CANDIDATE_FOR", mid, entry.entity_id),
+                    "score": entry.score, "co_occurrences": entry.co_occurrences,
+                    "participations": entry.participations, "run_id": run_id,
+                })
+
+            if decision.winner is None:
+                unresolved.append(
+                    (mid, METHOD_UNRESOLVED, len(candidates), decision.reason))
+                continue
+
+            decided += 1
+            graph_resolves.append({
+                "src": mid, "dst": decision.winner.entity_id,
+                "eid": minter.edge("RESOLVES_TO", mid, decision.winner.entity_id),
+                "method": METHOD_GRAPH_EVIDENCE,
+                "confidence": round(0.5 + 0.45 * decision.margin, 3),
+                "evidence": decision.reason[:400], "candidates": len(candidates),
+                "run_id": run_id,
+            })
+        minter.flush()
+
+        if graph_resolves:
+            upsert_edges(client, "RESOLVES_TO", graph_resolves,
+                         job=f"{job}:graph:{fingerprint(graph_resolves)}",
+                         source_label=MENTION, target_label=ENTITY,
+                         properties=["method", "confidence", "evidence",
+                                     "candidates", "run_id"],
+                         checkpointer=checkpointer)
+        if candidate_edges:
+            upsert_edges(client, "CANDIDATE_FOR", candidate_edges,
+                         job=f"{job}:{fingerprint(candidate_edges)}",
+                         source_label=MENTION, target_label=ENTITY,
+                         properties=["score", "co_occurrences", "participations",
+                                     "run_id"],
+                         checkpointer=checkpointer)
+
+        # Statuses last, so every mention carries its own outcome.
+        status_rows = [
+            {"vertex": mention_ids[(doc_id, m.start, m.end)], "status": "resolved",
+             "method": r.method, "candidates": len(r.candidates),
+             "reason": r.evidence[:300]}
+            for doc_id, m, r, _ in direct
+        ] + [
+            {"vertex": row["src"], "status": "resolved",
+             "method": METHOD_GRAPH_EVIDENCE, "candidates": row["candidates"],
+             "reason": row["evidence"][:300]}
+            for row in graph_resolves
+        ] + [
+            {"vertex": mid, "status": "unresolved", "method": method,
+             "candidates": count, "reason": (reason or "")[:300]}
+            for mid, method, count, reason in unresolved
+        ]
+        load_nodes(MENTION, status_rows,
+                   ["status", "method", "candidates", "reason"])
+
+        print(f"  graph decided {decided}/{len(ambiguous)} ambiguous surfaces "
+              f"in {evidence.queries} queries")
+        print(f"  registry: {registry.count()} identities "
+              f"({registry.count('node')} nodes, {registry.count('edge')} edges)")
+
+        print("\ngraph for this run")
         for label in (DOC, ENTITY, MENTION, CHANNEL):
-            print(f"  {label:9} {client.count_labelled(label):>6}")
-
-        # --- the exit-gate check: two surfaces, one entity ------------------
-        surfaces = defaultdict(set)
-        for _, mention, resolution in resolutions:
-            if resolution.resolved and mention.kind != BOT:
-                surfaces[resolution.person_key].add(mention.surface.casefold())
-
-        multi = {k: v for k, v in surfaces.items() if len(v) >= 2}
-        print(f"\nentities reached by two or more distinct surfaces: {len(multi)}")
-        for key, forms in list(multi.items())[:5]:
-            person = resolver.people[key]
-            print(f"  {person.display_name:24} <- {sorted(forms)}")
-
-        ambiguous = resolver.ambiguous_surfaces()
-        print(f"\nsurfaces left ambiguous by design: {len(ambiguous)}")
-        for handle, cands in list(ambiguous.items())[:5]:
-            names = [resolver.people[c].display_name for c in cands[:4]]
-            print(f"  {handle:16} {len(cands)} candidates: {names}")
+            rows = client.bolt_read(
+                f"MATCH (n:{label}) WHERE n.run_id = $r RETURN count(*) AS c",
+                {"r": run_id})
+            print(f"  {label:9} {rows[0]['c']:>6}")
 
     checkpointer.close()
+    print(f"\nrun id: {run_id}")
     return 0
 
 

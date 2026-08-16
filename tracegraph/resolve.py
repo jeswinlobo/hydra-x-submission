@@ -48,6 +48,7 @@ from .parsers.base import (
 # audited and so the UI can explain why one candidate beat another.
 METHOD_STRONG_KEY = "strong_key_email"
 METHOD_TOKEN_EXACT = "token_set_exact"
+METHOD_TOKEN_UNIQUE = "token_subset_unique"
 METHOD_GRAPH_EVIDENCE = "graph_evidence"
 METHOD_UNRESOLVED = "unresolved"
 
@@ -57,6 +58,7 @@ METHOD_UNRESOLVED = "unresolved"
 CONFIDENCE = {
     METHOD_STRONG_KEY: 1.0,
     METHOD_TOKEN_EXACT: 0.95,
+    METHOD_TOKEN_UNIQUE: 0.85,
     METHOD_GRAPH_EVIDENCE: 0.80,
     METHOD_UNRESOLVED: 0.0,
 }
@@ -181,11 +183,53 @@ class Resolver:
             key for key, person in self.people.items() if tokens <= person.tokens
         )
 
+    def merge_same_person(self) -> int:
+        """Fold alternate addresses for one person into a single identity.
+
+        The corpus gives the same person several addresses — Grace O'Connor
+        appears at redwood.com, redwood.ai, redwood-inference.com and more —
+        and one identity per address produced nineteen Grace O'Connors, each
+        with a fragment of her evidence.
+
+        Merging is restricted to full names, two tokens or more. A single-token
+        display name is exactly the ambiguous case this module exists to be
+        careful about: merging every `sam` would be the false merge that
+        entity resolution is judged on.
+        """
+        by_name: dict[str, list[str]] = defaultdict(list)
+        for key, person in self.people.items():
+            tokens = name_tokens(person.display_name)
+            if "@" in person.display_name or len(tokens) < 2:
+                continue
+            by_name[" ".join(sorted(tokens))].append(key)
+
+        merged = 0
+        for keys in by_name.values():
+            if len(keys) < 2:
+                continue
+            survivor = self.people[sorted(keys)[0]]
+            for key in sorted(keys)[1:]:
+                other = self.people.pop(key)
+                survivor.emails |= other.emails
+                survivor.domains |= other.domains
+                survivor.channels |= other.channels
+                survivor.documents |= other.documents
+                for email in other.emails:
+                    self._by_email[email] = survivor.key
+                merged += 1
+
+        self._by_token_set.clear()
+        for key, person in self.people.items():
+            self._by_token_set[frozenset(person.tokens)].add(key)
+        return merged
+
     def resolve_mention(
         self,
         mention: Mention,
         doc_id: str,
         channel: str | None = None,
+        *,
+        use_graph_tier: bool = True,
     ) -> Resolution:
         surface = mention.surface
         if mention.kind == BOT:
@@ -205,22 +249,37 @@ class Resolver:
             return Resolution(surface, doc_id, METHOD_UNRESOLVED, 0.0, None,
                               evidence="no candidate shares this surface's tokens")
 
-        # Tier 2 — exactly one candidate, and the token sets match completely.
+        # Tier 2 — exactly one candidate.
         if len(candidates) == 1:
             key = candidates[0]
-            exact = name_tokens(surface) == self.people[key].tokens
-            method = METHOD_TOKEN_EXACT if exact else METHOD_GRAPH_EVIDENCE
-            if exact:
-                return Resolution(surface, doc_id, method, CONFIDENCE[method], key,
-                                  candidates=candidates,
-                                  evidence=f"token set {sorted(name_tokens(surface))} "
-                                           f"matches exactly one person")
-            return Resolution(surface, doc_id, METHOD_TOKEN_EXACT,
-                              CONFIDENCE[METHOD_TOKEN_EXACT] - 0.05, key,
-                              candidates=candidates,
-                              evidence="only one person shares these tokens")
+            if name_tokens(surface) == self.people[key].tokens:
+                return Resolution(
+                    surface, doc_id, METHOD_TOKEN_EXACT,
+                    CONFIDENCE[METHOD_TOKEN_EXACT], key, candidates=candidates,
+                    evidence=f"token set {sorted(name_tokens(surface))} matches "
+                             "this person's exactly",
+                )
+            # A partial match against a single candidate is weaker than an exact
+            # one and is labelled as such rather than borrowing the exact tier's
+            # name: `chen` matching only Alex Chen is a unique subset, not an
+            # identity, and calling it exact overstates it.
+            return Resolution(
+                surface, doc_id, METHOD_TOKEN_UNIQUE,
+                CONFIDENCE[METHOD_TOKEN_UNIQUE], key, candidates=candidates,
+                evidence=f"tokens {sorted(name_tokens(surface))} are a subset of "
+                         "exactly one person's, with no competing candidate",
+            )
 
-        # Tier 3 — several candidates; the graph has to separate them.
+        # Tier 3 — several candidates. Only the graph can separate them, and it
+        # is queried by the caller that holds a client; this module reports the
+        # candidate set rather than guessing from in-memory state.
+        if not use_graph_tier:
+            return Resolution(
+                surface, doc_id, METHOD_UNRESOLVED, 0.0, None,
+                candidates=list(candidates),
+                evidence=f"{len(candidates)} candidates share the tokens "
+                         f"{sorted(name_tokens(surface))}; needs graph evidence",
+            )
         handle = mention.attributes.get("handle") or normalise_name(surface)
         return self._resolve_by_evidence(surface, doc_id, handle, candidates, channel)
 
