@@ -11,24 +11,27 @@ in a shape that differs per source.
 
 ## Distribution
 
-Counts over the first 230,000 documents scanned:
+**The corpus is sorted by `source_type`.** Reading the first N rows returns one
+or two sources, not a sample — a scan of the first 230,000 rows suggests Slack is
+2% of the corpus when it is in fact the majority. Any sampling has to cover the
+whole file or seek to each source's region. Full counts over all 511,962 rows:
 
-| Source | Documents | Share |
-|---|---:|---:|
-| gmail | 121,390 | 53% |
-| linear | 35,308 | 15% |
-| google_drive | 25,108 | 11% |
-| hubspot | 15,017 | 7% |
-| fireflies | 10,173 | 4% |
-| github | 8,052 | 4% |
-| jira | 6,120 | 3% |
-| confluence | 5,189 | 2% |
-| slack | 3,643 | 2% |
+| Source | Documents | Share | Approx. first row |
+|---|---:|---:|---:|
+| slack | 285,605 | 55.8% | ~226,000 |
+| gmail | 121,390 | 23.7% | ~30,000 |
+| linear | 35,308 | 6.9% | ~191,000 |
+| google_drive | 25,108 | 4.9% | ~152,000 |
+| hubspot | 15,017 | 2.9% | ~177,000 |
+| fireflies | 10,173 | 2.0% | ~5,000 |
+| github | 8,052 | 1.6% | ~22,000 |
+| jira | 6,120 | 1.2% | ~185,000 |
+| confluence | 5,189 | 1.0% | 0 |
 
-Gmail is over half the corpus and also the single richest source for identity
-evidence, which sets the parser priority. Slack is small in volume but is where
-bare handles appear, so it is where alias resolution is hardest and most
-visible.
+Slack is over half the corpus and Gmail another quarter; together they are four
+documents in five. That sets the parser priority, and it is fortunate for the
+demo: Slack is where bare handles live, so the hardest identity case is also the
+most common one.
 
 ## Per-source structure
 

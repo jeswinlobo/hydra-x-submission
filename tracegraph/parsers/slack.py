@@ -19,6 +19,7 @@ from __future__ import annotations
 import re
 
 from .base import (
+    BOT,
     PERSON,
     ROLE_SPEAKER,
     Mention,
@@ -26,6 +27,7 @@ from .base import (
     _split_code_fences,
     extract_references,
     in_spans,
+    looks_like_bot,
 )
 
 SOURCE_TYPE = "slack"
@@ -62,7 +64,7 @@ def parse(doc_id: str, title: str, content: str) -> ParsedDoc:
         doc.mentions.append(
             Mention(
                 surface=match.group(1),
-                kind=PERSON,
+                kind=BOT if looks_like_bot(handle) else PERSON,
                 role=ROLE_SPEAKER,
                 start=match.start(1),
                 end=match.end(1),
@@ -77,7 +79,7 @@ def parse(doc_id: str, title: str, content: str) -> ParsedDoc:
         doc.mentions.append(
             Mention(
                 surface=match.group(1),
-                kind=PERSON,
+                kind=BOT if looks_like_bot(handle) else PERSON,
                 role="at_mention",
                 start=match.start(1),
                 end=match.end(1),

@@ -1,0 +1,318 @@
+"""Entity resolution: deciding when two surfaces are one person.
+
+The corpus makes this genuinely hard rather than incidentally hard. Slack is
+55.8% of it and its speakers are bare first names, while Gmail supplies full
+names and addresses. A single `sam:` line has at least ten plausible referents
+in this corpus — Sam Carter, Sam Patel, Sam Wilson, Sam Wong, Samir Patel,
+Samir Desai, Samantha Lee, Samuel Price, Samira Khan, Sam Irving. String
+similarity cannot separate them, and picking the most frequent would be a
+guess dressed up as an answer.
+
+So resolution runs in tiers, and every decision records the method and the
+evidence behind it:
+
+1. **Strong key.** An email address identifies a person outright.
+2. **Exact token bridge.** `alyssa.chen` and `Alyssa Chen` share the full token
+   set `{alyssa, chen}`. Unambiguous when exactly one candidate matches.
+3. **Graph evidence.** A partial match — a bare first name — is resolved only
+   when the graph separates the candidates: shared channels, co-participation,
+   a shared thread. This is the tier that needs HydraDB, and the tier the demo
+   shows.
+4. **Unresolved.** When evidence does not separate the candidates, the mention
+   stays unresolved with its candidates recorded. PLAN.md is explicit that
+   preserving an unresolved state beats forcing a weak match, and an honest
+   "cannot tell" is a feature of a truth debugger rather than a gap in it.
+
+Nothing here consults `eval-oracle/employee_directory.yaml`. That file maps
+every person to their email and manager, which is precisely the answer this
+module has to derive; it is scoring material only.
+"""
+
+from __future__ import annotations
+
+from collections import defaultdict
+from dataclasses import dataclass, field
+from typing import Iterable, Sequence
+
+from .parsers.base import (
+    BOT,
+    PERSON,
+    Mention,
+    email_domain,
+    email_local_part,
+    name_tokens,
+    normalise_name,
+)
+
+# Resolution methods, recorded on every RESOLVES_TO edge so a decision can be
+# audited and so the UI can explain why one candidate beat another.
+METHOD_STRONG_KEY = "strong_key_email"
+METHOD_TOKEN_EXACT = "token_set_exact"
+METHOD_GRAPH_EVIDENCE = "graph_evidence"
+METHOD_UNRESOLVED = "unresolved"
+
+# Confidence is reported, not invented: these are the ceilings each method can
+# claim, and graph evidence is scored within its band by how decisively the
+# neighbourhood separates the candidates.
+CONFIDENCE = {
+    METHOD_STRONG_KEY: 1.0,
+    METHOD_TOKEN_EXACT: 0.95,
+    METHOD_GRAPH_EVIDENCE: 0.80,
+    METHOD_UNRESOLVED: 0.0,
+}
+
+
+@dataclass
+class Person:
+    """A canonical person assembled from the documents alone."""
+
+    key: str                      # canonical natural key, the id is derived from it
+    display_name: str
+    emails: set[str] = field(default_factory=set)
+    handles: set[str] = field(default_factory=set)
+    domains: set[str] = field(default_factory=set)
+    channels: set[str] = field(default_factory=set)
+    documents: set[str] = field(default_factory=set)
+
+    @property
+    def tokens(self) -> set[str]:
+        """Tokens that may identify this person.
+
+        When the display name is itself a bare address, only its local part
+        counts: tokenising the whole thing folds the domain in, so every
+        colleague at `redwood.ai` acquires the token `redwood` and a message
+        mentioning the company resolves to a person.
+        """
+        name = self.display_name
+        toks = name_tokens(email_local_part(name) if "@" in name else name)
+        for email in self.emails:
+            toks |= name_tokens(email_local_part(email))
+        return toks
+
+
+@dataclass
+class Resolution:
+    """One mention's resolution, with the evidence that produced it."""
+
+    surface: str
+    doc_id: str
+    method: str
+    confidence: float
+    person_key: str | None
+    candidates: list[str] = field(default_factory=list)
+    evidence: str = ""
+
+    @property
+    def resolved(self) -> bool:
+        return self.person_key is not None
+
+
+class Resolver:
+    """Builds canonical people from mentions, then resolves ambiguous surfaces.
+
+    Two passes by necessity: identities have to exist before a bare handle can
+    be matched against them, and the graph evidence that separates candidates
+    only exists once participation has been recorded.
+    """
+
+    def __init__(self) -> None:
+        self.people: dict[str, Person] = {}
+        self._by_email: dict[str, str] = {}
+        self._by_token_set: dict[frozenset[str], set[str]] = defaultdict(set)
+        # handle -> channels it spoke in, and the documents it appeared in.
+        self._handle_channels: dict[str, set[str]] = defaultdict(set)
+        self._handle_docs: dict[str, set[str]] = defaultdict(set)
+
+    # --- pass one: build identities from strong evidence ---------------------
+
+    def observe(self, doc_id: str, source_type: str, mentions: Iterable[Mention],
+                channel: str | None = None) -> None:
+        """Record one document's mentions.
+
+        Only mentions carrying an email address create a person. A bare handle
+        never does: it would create one identity per spelling and guarantee that
+        every later match is against noise.
+        """
+        for mention in mentions:
+            if mention.kind == BOT:
+                continue
+            email = mention.attributes.get("email")
+            if email:
+                self._observe_person(doc_id, mention, email, channel)
+            elif mention.attributes.get("handle"):
+                handle = mention.attributes["handle"]
+                self._handle_docs[handle].add(doc_id)
+                if channel:
+                    self._handle_channels[handle].add(channel)
+
+    def _observe_person(self, doc_id: str, mention: Mention, email: str,
+                        channel: str | None) -> None:
+        email = email.casefold()
+        key = self._by_email.get(email) or f"email:{email}"
+        person = self.people.get(key)
+        if person is None:
+            person = Person(key=key, display_name=mention.surface.strip())
+            self.people[key] = person
+        # Prefer a display name over a bare address as the label.
+        if "@" in person.display_name and "@" not in mention.surface:
+            person.display_name = mention.surface.strip()
+
+        person.emails.add(email)
+        person.domains.add(email_domain(email))
+        person.documents.add(doc_id)
+        if channel:
+            person.channels.add(channel)
+        self._by_email[email] = key
+        self._by_token_set[frozenset(person.tokens)].add(key)
+
+    # --- pass two: resolve surfaces -----------------------------------------
+
+    def candidates_for(self, surface: str) -> list[str]:
+        """People whose token set contains every token of this surface.
+
+        A bare first name is a subset of many people; a full name usually of
+        one. Subset rather than equality, because the surface is the shorter
+        side.
+        """
+        tokens = name_tokens(surface)
+        if not tokens:
+            return []
+        return sorted(
+            key for key, person in self.people.items() if tokens <= person.tokens
+        )
+
+    def resolve_mention(
+        self,
+        mention: Mention,
+        doc_id: str,
+        channel: str | None = None,
+    ) -> Resolution:
+        surface = mention.surface
+        if mention.kind == BOT:
+            return Resolution(surface, doc_id, METHOD_UNRESOLVED, 0.0, None,
+                              evidence="automation, not a person")
+
+        # Tier 1 — an address resolves outright.
+        email = mention.attributes.get("email")
+        if email and email.casefold() in self._by_email:
+            key = self._by_email[email.casefold()]
+            return Resolution(surface, doc_id, METHOD_STRONG_KEY,
+                              CONFIDENCE[METHOD_STRONG_KEY], key,
+                              evidence=f"email {email.casefold()}")
+
+        candidates = self.candidates_for(surface)
+        if not candidates:
+            return Resolution(surface, doc_id, METHOD_UNRESOLVED, 0.0, None,
+                              evidence="no candidate shares this surface's tokens")
+
+        # Tier 2 — exactly one candidate, and the token sets match completely.
+        if len(candidates) == 1:
+            key = candidates[0]
+            exact = name_tokens(surface) == self.people[key].tokens
+            method = METHOD_TOKEN_EXACT if exact else METHOD_GRAPH_EVIDENCE
+            if exact:
+                return Resolution(surface, doc_id, method, CONFIDENCE[method], key,
+                                  candidates=candidates,
+                                  evidence=f"token set {sorted(name_tokens(surface))} "
+                                           f"matches exactly one person")
+            return Resolution(surface, doc_id, METHOD_TOKEN_EXACT,
+                              CONFIDENCE[METHOD_TOKEN_EXACT] - 0.05, key,
+                              candidates=candidates,
+                              evidence="only one person shares these tokens")
+
+        # Tier 3 — several candidates; the graph has to separate them.
+        handle = mention.attributes.get("handle") or normalise_name(surface)
+        return self._resolve_by_evidence(surface, doc_id, handle, candidates, channel)
+
+    def _resolve_by_evidence(
+        self, surface: str, doc_id: str, handle: str,
+        candidates: Sequence[str], channel: str | None,
+    ) -> Resolution:
+        """Separate candidates by where they appear, not by how they are spelled.
+
+        The signal is shared context: a handle that speaks in a channel is more
+        likely to be the person who also participates there. A tie is left
+        unresolved rather than broken arbitrarily.
+        """
+        context = set(self._handle_channels.get(handle, set()))
+        if channel:
+            context.add(channel)
+
+        scored: list[tuple[int, str]] = []
+        for key in candidates:
+            overlap = len(context & self.people[key].channels)
+            scored.append((overlap, key))
+        scored.sort(reverse=True)
+
+        best, runner_up = scored[0], (scored[1] if len(scored) > 1 else (0, ""))
+        if best[0] == 0 or best[0] == runner_up[0]:
+            return Resolution(
+                surface, doc_id, METHOD_UNRESOLVED, 0.0, None,
+                candidates=list(candidates),
+                evidence=(
+                    f"{len(candidates)} candidates share the tokens "
+                    f"{sorted(name_tokens(surface))} and the graph does not "
+                    "separate them"
+                ),
+            )
+
+        # Confidence scales with how decisively the winner leads.
+        #
+        # Known weakness, measured on a single-channel slice: with one channel
+        # in play the margin is always 1 - 0, so every evidence-tier resolution
+        # reports the same confidence regardless of how thin the evidence is,
+        # and an external-domain candidate can win an internal channel on one
+        # incidental overlap. The score is only meaningful once a slice spans
+        # several channels. Until it does, treat the tier as a candidate
+        # ranking rather than a decision, and prefer widening the slice over
+        # tuning this arithmetic.
+        margin = (best[0] - runner_up[0]) / best[0]
+        confidence = CONFIDENCE[METHOD_GRAPH_EVIDENCE] * (0.6 + 0.4 * margin)
+        shared = sorted(context & self.people[best[1]].channels)[:3]
+        return Resolution(
+            surface, doc_id, METHOD_GRAPH_EVIDENCE, round(confidence, 3), best[1],
+            candidates=list(candidates),
+            evidence=(
+                f"shares {best[0]} channel(s) {shared} with this handle, against "
+                f"{runner_up[0]} for the next candidate"
+            ),
+        )
+
+    def learn_participation(self, resolutions: Iterable["Resolution"],
+                            channel_by_doc: dict[str, str]) -> int:
+        """Feed confident resolutions back as participation evidence.
+
+        Identities are built from email, which carries no channel, so on the
+        first pass a person has no participation and the graph-evidence tier has
+        nothing to compare against. Once a mention has been resolved by strong
+        key inside a Slack document, that person demonstrably participates in
+        that channel, and a second pass can use it to separate candidates that
+        the first pass had to leave ambiguous.
+
+        Only high-confidence resolutions feed back. Learning from a guess and
+        then resolving further guesses against it is how a resolver talks itself
+        into a false merge.
+        """
+        learned = 0
+        for resolution in resolutions:
+            if not resolution.resolved or resolution.method == METHOD_GRAPH_EVIDENCE:
+                continue
+            channel = channel_by_doc.get(resolution.doc_id)
+            if not channel:
+                continue
+            person = self.people.get(resolution.person_key or "")
+            if person is not None and channel not in person.channels:
+                person.channels.add(channel)
+                learned += 1
+        return learned
+
+    # --- reporting ----------------------------------------------------------
+
+    def ambiguous_surfaces(self, minimum: int = 2) -> dict[str, list[str]]:
+        """Surfaces with several candidates — the cases worth demonstrating."""
+        out: dict[str, list[str]] = {}
+        for handle in self._handle_channels:
+            candidates = self.candidates_for(handle)
+            if len(candidates) >= minimum:
+                out[handle] = candidates
+        return out

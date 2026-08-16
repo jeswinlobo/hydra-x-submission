@@ -13,6 +13,7 @@ provenance.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from typing import Iterable
@@ -26,6 +27,32 @@ ORGANISATION = "organisation"
 CHANNEL = "channel"
 TICKET = "ticket"
 ACCOUNT = "account"
+# Automation posts in the same shape as a person and must never be resolved as
+# one; a bot merged into a human entity corrupts that person's whole
+# neighbourhood, and bots are prolific posters.
+BOT = "bot"
+
+# Handles that are automation rather than people. Drawn from what the corpus
+# actually contains: deploy-bot, ci-bot, ops-bot, incident-bot, memprof-bot,
+# infra-jenkins-bot, api-lint-bot, and so on.
+_BOT_SUFFIXES = ("-bot", "_bot", "bot")
+_BOT_TOKENS = frozenset(
+    {"bot", "ci", "jenkins", "deploy", "build", "alert", "alerts", "webhook",
+     "pipeline", "cron", "monitor", "pagerduty", "nagios"}
+)
+
+
+def looks_like_bot(handle: str) -> bool:
+    """Is this handle automation rather than a person?
+
+    Conservative on purpose in one direction only: a missed bot pollutes
+    resolution, while a misclassified person merely goes unresolved, and PLAN.md
+    prefers a missing edge to a false one.
+    """
+    h = handle.casefold()
+    if any(h.endswith(suffix) for suffix in _BOT_SUFFIXES):
+        return True
+    return bool(_BOT_TOKENS & {t for t in re.split(r"[^a-z]+", h) if t})
 
 # Mention roles describe how a surface appeared, which is what makes one piece
 # of evidence stronger than another during resolution. A sender header is a
@@ -90,9 +117,52 @@ TICKET_KEY_RE = re.compile(r"\b([A-Z]{2,10}-\d{1,6})\b")
 URL_RE = re.compile(r"https?://[^\s<>()\[\]{}\"']+")
 
 # A display name followed by a bracketed address: `Alyssa Chen <a.chen@x.com>`.
-NAME_EMAIL_RE = re.compile(r"([^<>,;]+?)\s*<([^<>@\s]+@[^<>\s]+)>")
+# Newlines are excluded from the name: a header value that runs on, or a quoted
+# reply below it, otherwise lets the name capture swallow the preceding line and
+# produce entities like "\nTo: Sam Wilson".
+NAME_EMAIL_RE = re.compile(r"([^<>,;\r\n]+?)\s*<([^<>@\s]+@[^<>\s]+)>")
 
 BARE_EMAIL_RE = re.compile(r"\b([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b")
+
+
+def normalise_content(raw: str) -> str:
+    """Canonical document body.
+
+    Part of the corpus is stored JSON-encoded — a Gmail body can arrive as
+    `["From: Grace O'Connor <...>\\nTo: ..."]`, where the line breaks are the
+    two characters backslash-n rather than newlines. Header parsing is
+    line-anchored, so without this those documents parse as one enormous line
+    and yield mentions like `\\nTo: Grace O'Connor`.
+
+    This is the single definition of a document's body: mention offsets index
+    into the string this returns, and evidence spans are validated against it,
+    so the two cannot drift. It is idempotent, so re-normalising a body that was
+    already plain text changes nothing.
+    """
+    text = raw
+    if text[:1] in "[{" and "\\n" in text[:400]:
+        try:
+            decoded = json.loads(text)
+        except ValueError:
+            decoded = None
+        if isinstance(decoded, str):
+            text = decoded
+        elif isinstance(decoded, list) and decoded and all(
+            isinstance(part, str) for part in decoded
+        ):
+            text = "\n".join(decoded)
+
+    # Runs after the JSON branch as well as instead of it: part of the corpus is
+    # double-escaped, so a successful decode can still leave literal escapes
+    # behind. Unescape only the sequences that actually occur rather than
+    # running a general unicode_escape decode, which would mangle UTF-8.
+    if "\\n" in text or "\\'" in text or '\\"' in text or "\\t" in text:
+        for escaped, plain in (
+            ("\\r\\n", "\n"), ("\\n", "\n"), ("\\t", "\t"),
+            ("\\'", "'"), ('\\"', '"'),
+        ):
+            text = text.replace(escaped, plain)
+    return text
 
 
 def normalise_name(raw: str) -> str:
