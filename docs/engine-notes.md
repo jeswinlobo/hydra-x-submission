@@ -103,6 +103,41 @@ This is a hard ceiling rather than a tuning knob, so `config.NODE_BATCH_SIZE`
 and `config.EDGE_BATCH_SIZE` sit at 1000 and the loader refuses a larger value
 up front instead of discovering it mid-ingest.
 
+### A label index holds at most 250,000 vertices
+
+Registering all 511,962 documents under one label fails partway:
+
+```
+cypher_vertex_label_index_candidates rejected by admission control:
+actual 250001 exceeds limit 250000
+```
+
+The failure is worse than a rejected write, because the partial write leaves the
+label over its cap and **every unbounded scan of that label then fails too** —
+`MATCH (d:Document) RETURN count(*)`, and any `WHERE d.run_id = …` filter that
+has to walk the label. Id-anchored and property-anchored lookups keep working
+(`MATCH (d:Document {id: $id})`, `MATCH (d:Document {dsid: $dsid})`), so the data
+is readable, but so is deletion by label — which means the state cannot be
+cleaned up through the label that broke. Recreating the store is the way out.
+
+This is a design constraint rather than a tuning knob, and it points the same
+way PLAN.md already does: *Parquet remains the authoritative full-text store; do
+not duplicate every body into another large database.* The graph holds the
+**enriched working set** — documents that carry mentions, claims, and evidence —
+while lexical search covers the whole corpus and has no such ceiling. Retrieval
+finds entry points across 512k documents; the graph reasons over the thousands
+that have been enriched.
+
+Practical rules that follow:
+
+- Keep any one label comfortably under 250,000. Partition by run or by working
+  set, not by "everything of this type".
+- Prefer id-anchored reads everywhere. They are the engine's native access path
+  and they keep working when a label scan will not.
+- Registering ids is separate from writing them: the 525,201 identities for the
+  full corpus registered without a single collision, so the id scheme scales
+  even where the label index does not.
+
 ### Measured throughput
 
 5,000 nodes in 0.26 s — **~19,000 rows/second** at a batch size of 1000, steady
