@@ -14,6 +14,10 @@ dependencies = [
     "httpx>=0.28,<1",
     "anthropic>=0.60,<1",
     "python-dotenv>=1,<2",
+    # Ask & Inspect serves the answer contract and the evidence graph the
+    # judges look at; the UI is a single static page this app hosts.
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.30,<1",
 ]
 
 [dependency-groups]

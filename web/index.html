@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TraceGraph — Ask &amp; Inspect</title>
+<style>
+  :root {
+    --bg: #0d0d0d; --surface: #1a1a19; --surface-2: #232322;
+    --line: rgba(255,255,255,0.10); --text: #ffffff; --dim: #c3c2b7;
+    --muted: #898781; --accent: #3987e5; --good: #0ca30c; --warn: #fab219;
+    --person: #3987e5; --doc: #d95926; --claim: #199e70; --span: #d55181;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 24px; padding: 10px 20px;
+    border-bottom: 1px solid var(--line); background: var(--surface);
+    position: sticky; top: 0; z-index: 5; flex-wrap: wrap;
+  }
+  .brand { font-weight: 650; letter-spacing: -0.2px; }
+  .brand span { color: var(--muted); font-weight: 400; margin-left: 8px; }
+  .stats { display: flex; gap: 18px; margin-left: auto; flex-wrap: wrap; }
+  .stat .k { color: var(--muted); font-size: 11px; text-transform: uppercase;
+             letter-spacing: 0.04em; }
+  .stat .v { font-family: var(--mono); font-size: 13px; }
+  main { display: grid; grid-template-columns: 1.05fr 1fr; gap: 16px;
+         padding: 16px 20px 40px; align-items: start; }
+  @media (max-width: 1080px) { main { grid-template-columns: 1fr; } }
+  .panel { background: var(--surface); border: 1px solid var(--line);
+           border-radius: 10px; }
+  .panel > h2 { margin: 0; padding: 12px 16px; font-size: 12px; font-weight: 600;
+                text-transform: uppercase; letter-spacing: 0.06em;
+                color: var(--muted); border-bottom: 1px solid var(--line); }
+  .body { padding: 16px; }
+  form { display: flex; gap: 8px; }
+  input[type=text] {
+    flex: 1; background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 7px; color: var(--text); padding: 11px 13px; font-size: 14px;
+  }
+  input[type=text]:focus { outline: none; border-color: var(--accent); }
+  button {
+    background: var(--accent); color: #fff; border: 0; border-radius: 7px;
+    padding: 11px 20px; font-size: 14px; font-weight: 550; cursor: pointer;
+  }
+  button:disabled { opacity: 0.55; cursor: default; }
+  .examples { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .chip {
+    background: var(--surface-2); border: 1px solid var(--line); color: var(--dim);
+    border-radius: 999px; padding: 5px 12px; font-size: 12px; cursor: pointer;
+  }
+  .chip:hover { border-color: var(--accent); color: var(--text); }
+  .badge {
+    display: inline-flex; align-items: center; gap: 7px; border-radius: 999px;
+    padding: 4px 12px; font-size: 12px; font-weight: 600;
+    border: 1px solid var(--line);
+  }
+  .badge.supported { color: var(--good); }
+  .badge.insufficient { color: var(--dim); }
+  .badge.conflicting { color: var(--warn); }
+  .meter { height: 5px; background: var(--surface-2); border-radius: 3px;
+           overflow: hidden; margin-top: 8px; }
+  .meter > i { display: block; height: 100%; background: var(--accent); }
+  .answer { margin: 14px 0; font-size: 15px; line-height: 1.65; }
+  .cite { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+  ul.plain { list-style: none; margin: 0; padding: 0; }
+  .claim { border-left: 2px solid var(--claim); padding: 6px 0 6px 12px;
+           margin-bottom: 12px; }
+  .claim .t { color: var(--dim); font-size: 13px; }
+  .quote { color: var(--muted); font-size: 12.5px; font-style: italic;
+           margin-top: 4px; }
+  .tabs { display: flex; gap: 4px; padding: 8px 10px 0; border-bottom: 1px solid var(--line); }
+  .tab { background: none; border: 0; color: var(--muted); padding: 8px 12px;
+         font-size: 12.5px; cursor: pointer; border-bottom: 2px solid transparent; }
+  .tab[aria-selected=true] { color: var(--text); border-bottom-color: var(--accent); }
+  pre { font-family: var(--mono); font-size: 11.5px; color: var(--dim);
+        background: var(--surface-2); padding: 10px; border-radius: 6px;
+        overflow-x: auto; margin: 0 0 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; font-size: 11px;
+       text-transform: uppercase; letter-spacing: 0.04em; }
+  .bar { height: 4px; background: var(--surface-2); border-radius: 2px; }
+  .bar > i { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
+  .muted { color: var(--muted); }
+  .empty { color: var(--muted); padding: 22px 4px; text-align: center; font-size: 13px; }
+  .legend { display: flex; gap: 14px; font-size: 11px; color: var(--muted);
+            margin-top: 8px; flex-wrap: wrap; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+         margin-right: 5px; vertical-align: middle; }
+  .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid #fff6;
+             border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">TraceGraph <span>enterprise truth debugger on HydraDB</span></div>
+  <div class="stats" id="stats"></div>
+</header>
+
+<main>
+  <section>
+    <div class="panel">
+      <h2>Ask</h2>
+      <div class="body">
+        <form id="askForm">
+          <input type="text" id="q" autocomplete="off"
+                 placeholder="Ask about people, projects, decisions, conflicts…">
+          <button id="askBtn" type="submit">Ask</button>
+        </form>
+        <div class="examples" id="examples"></div>
+      </div>
+    </div>
+
+    <div class="panel" id="answerPanel" style="margin-top:16px; display:none">
+      <h2>Answer</h2>
+      <div class="body" id="answer"></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="tabs" role="tablist">
+      <button class="tab" data-tab="graph" role="tab" aria-selected="true">Evidence graph</button>
+      <button class="tab" data-tab="resolution" role="tab" aria-selected="false">Entity resolution</button>
+      <button class="tab" data-tab="conflicts" role="tab" aria-selected="false">Conflicts</button>
+      <button class="tab" data-tab="trace" role="tab" aria-selected="false">HydraDB trace</button>
+    </div>
+    <div class="body" id="inspect">
+      <div class="empty">Ask a question to populate the evidence graph.</div>
+    </div>
+  </section>
+</main>
+
+<script>
+const KIND_COLOUR = { Document: "var(--doc)", Claim: "var(--claim)",
+                      EvidenceSpan: "var(--span)", Entity: "var(--person)" };
+const EXAMPLES = [
+  "What is Grace O'Connor's role and what security commitments has Redwood made?",
+  "What did Redwood commit to for SOC 2 and audit evidence?",
+  "What is the Q4 2029 revenue target for the Antarctic division?",
+];
+let current = null, tab = "graph";
+
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+async function get(url) { const r = await fetch(url); if (!r.ok) throw new Error(await r.text()); return r.json(); }
+
+async function loadStatus() {
+  try {
+    const s = await get("/api/status");
+    const n = s.nodes, e = s.edges;
+    document.getElementById("stats").innerHTML = [
+      ["documents", n.Document], ["entities", n.Entity], ["claims", n.Claim],
+      ["spans", n.EvidenceSpan], ["conflicts", e.CONFLICTS_WITH],
+      ["read epoch", s.consistency.read_epoch],
+    ].map(([k, v]) => `<div class="stat"><div class="k">${k}</div>
+        <div class="v">${Number(v).toLocaleString()}</div></div>`).join("");
+  } catch (err) {
+    document.getElementById("stats").innerHTML =
+      `<div class="stat"><div class="k">graph</div><div class="v">unreachable</div></div>`;
+  }
+}
+
+function renderExamples() {
+  document.getElementById("examples").innerHTML = EXAMPLES
+    .map((q, i) => `<button class="chip" data-i="${i}">${esc(q.slice(0, 58))}…</button>`).join("");
+  document.querySelectorAll(".chip").forEach(c => c.onclick = () => {
+    document.getElementById("q").value = EXAMPLES[+c.dataset.i];
+    ask(EXAMPLES[+c.dataset.i]);
+  });
+}
+
+async function ask(question) {
+  const btn = document.getElementById("askBtn");
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>';
+  document.getElementById("answerPanel").style.display = "";
+  document.getElementById("answer").innerHTML =
+    `<div class="muted">retrieving entry points, walking the graph, checking every span…</div>`;
+  try {
+    const r = await fetch("/api/ask", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question }),
+    });
+    current = await r.json();
+    renderAnswer(); renderInspect();
+  } catch (err) {
+    document.getElementById("answer").innerHTML =
+      `<div class="muted">request failed: ${esc(err.message)}</div>`;
+  } finally { btn.disabled = false; btn.textContent = "Ask"; }
+}
+
+function renderAnswer() {
+  const d = current, a = d.answerability;
+  const label = { supported: "✓ Supported", insufficient: "⊘ Insufficient — abstained",
+                  conflicting: "⚠ Conflicting" }[a] || a;
+  const cites = (d.document_ids || []).map(x =>
+    `<li class="cite">${esc(x)}</li>`).join("");
+  const claims = (d.claims || []).slice(0, 5).map(c => `
+    <div class="claim">
+      <div class="t"><strong>${esc(c.subject)}</strong> — ${esc(c.predicate)} — ${esc(c.object)}</div>
+      <div class="quote">“${esc((c.quote || "").slice(0, 150))}”</div>
+      <div class="cite">${esc(c.dsid)}</div>
+    </div>`).join("");
+
+  document.getElementById("answer").innerHTML = `
+    <span class="badge ${a}">${label}</span>
+    <div class="meter"><i style="width:${Math.round((d.confidence || 0) * 100)}%"></i></div>
+    <div class="muted" style="font-size:12px;margin-top:5px">
+      confidence ${d.confidence} · ${d.document_ids.length} validated citation(s)
+      ${d.rejected_spans ? ` · ${d.rejected_spans} span(s) rejected as no longer verbatim` : ""}
+    </div>
+    <div class="answer">${esc(d.answer)}</div>
+    ${cites ? `<h3 style="font-size:12px;color:var(--muted);text-transform:uppercase">Citations</h3>
+               <ul class="plain">${cites}</ul>` : ""}
+    ${claims ? `<h3 style="font-size:12px;color:var(--muted);text-transform:uppercase;margin-top:16px">
+                 Supporting claims — every span verified verbatim in its source</h3>${claims}` : ""}`;
+}
+
+function renderGraph() {
+  const g = (current && current.evidence_graph) || { nodes: [], edges: [] };
+  if (!g.nodes.length) return `<div class="empty">No evidence subgraph — the answer cited nothing.</div>`;
+  const cols = { Document: 60, Claim: 250, EvidenceSpan: 470 };
+  const rows = {}; const pos = {};
+  g.nodes.forEach(n => { rows[n.kind] = (rows[n.kind] || 0); pos[n.id] = { x: cols[n.kind] ?? 60, y: 34 + rows[n.kind] * 44 }; rows[n.kind]++; });
+  const h = Math.max(...Object.values(rows)) * 44 + 50;
+  const edges = g.edges.map(e => {
+    const a = pos[e.source], b = pos[e.target];
+    if (!a || !b) return "";
+    return `<path d="M${a.x + 96} ${a.y} C ${a.x + 150} ${a.y}, ${b.x - 50} ${b.y}, ${b.x} ${b.y}"
+             fill="none" stroke="var(--line)" stroke-width="1.4"/>`;
+  }).join("");
+  const nodes = g.nodes.map(n => `
+    <g transform="translate(${pos[n.id].x},${pos[n.id].y})">
+      <rect x="0" y="-13" rx="6" width="96" height="26" fill="var(--surface-2)"
+            stroke="${KIND_COLOUR[n.kind] || "var(--line)"}" stroke-width="1.4"/>
+      <circle cx="11" cy="0" r="3.5" fill="${KIND_COLOUR[n.kind] || "#888"}"/>
+      <text x="21" y="4" font-size="9.5" fill="var(--dim)">${esc(n.label.slice(0, 13))}</text>
+      <title>${esc(n.kind)}: ${esc(n.label)}</title>
+    </g>`).join("");
+  return `<svg viewBox="0 0 600 ${h}" width="100%" height="${Math.min(h, 420)}">${edges}${nodes}</svg>
+    <div class="legend">
+      <span><i class="dot" style="background:var(--doc)"></i>Document</span>
+      <span><i class="dot" style="background:var(--claim)"></i>Claim</span>
+      <span><i class="dot" style="background:var(--span)"></i>EvidenceSpan</span>
+      <span class="muted">bounded to cited documents, 2 hops</span>
+    </div>`;
+}
+
+async function renderResolution() {
+  const d = await get("/api/resolution?limit=6");
+  const resolved = d.resolved.map(e => `
+    <tr><td><strong>${esc(e.name)}</strong><div class="muted" style="font-size:11px">
+      ${e.surfaces.length} distinct surfaces</div></td>
+      <td>${e.surfaces.slice(0, 4).map(s =>
+        `<div><span class="cite">${esc(s.surface.slice(0, 30))}</span>
+         <span class="muted"> ${esc(s.method)} ${s.confidence}</span></div>`).join("")}</td></tr>`).join("");
+  const unresolved = d.unresolved.map(u => `
+    <tr><td><span class="cite">${esc(u.surface)}</span></td>
+        <td class="muted">${u.candidates} candidates — kept unresolved</td></tr>`).join("");
+  return `<h3 style="font-size:12px;color:var(--muted);text-transform:uppercase">
+            Resolved — several surfaces, one entity</h3>
+          <table><tr><th>entity</th><th>surfaces and method</th></tr>${resolved}</table>
+          <h3 style="font-size:12px;color:var(--muted);text-transform:uppercase;margin-top:18px">
+            Left ambiguous on purpose</h3>
+          <table><tr><th>surface</th><th>why</th></tr>${unresolved}</table>`;
+}
+
+async function renderConflicts() {
+  const d = await get("/api/conflicts?limit=5");
+  if (!d.conflicts.length) return `<div class="empty">No contested facts in this run.</div>`;
+  const blocks = d.conflicts.map(c => `
+    <div style="margin-bottom:20px">
+      <div><strong>${esc(c.subject)}</strong>
+        <span class="muted"> — ${esc(c.predicate)}${c.mutable ? " (mutable)" : ""}</span>
+        ${c.decided ? `<span class="badge supported" style="margin-left:8px">best supported</span>`
+                    : `<span class="badge conflicting" style="margin-left:8px">no winner declared</span>`}</div>
+      <table style="margin-top:6px">
+        <tr><th>version</th><th>trust</th><th>sources</th></tr>
+        ${c.versions.slice(0, 4).map(v => `
+          <tr>
+            <td>${v.best_supported ? "★ " : ""}${esc(v.value.slice(0, 42))}</td>
+            <td style="width:110px">
+              <div class="bar"><i style="width:${Math.round(v.trust.score * 100)}%"></i></div>
+              <span class="muted" style="font-size:11px">${v.trust.score}</span></td>
+            <td class="muted">${esc(v.sources.join(", "))}</td>
+          </tr>`).join("")}
+      </table>
+      <div class="muted" style="font-size:12px;margin-top:5px">${esc(c.reason)}</div>
+    </div>`).join("");
+  return `<div class="muted" style="font-size:12px;margin-bottom:12px">
+      ${d.stats.conflicts_found} contested facts · ${d.stats.decided} with a best-supported version ·
+      ${d.stats.unmapped_predicates} predicates unmapped and queued</div>${blocks}`;
+}
+
+function renderTrace() {
+  if (!current) return `<div class="empty">Ask a question to see the trace.</div>`;
+  const t = current.hydradb_trace, c = t.consistency;
+  return `
+    <table>
+      <tr><th>operation</th><th>hops</th><th>rows</th><th>ms</th></tr>
+      ${t.queries.map(q => `<tr><td class="cite">${esc(q.operation)}</td>
+        <td>${q.hops}</td><td>${q.results}</td><td>${q.latency_ms}</td></tr>`).join("")}
+    </table>
+    <div class="muted" style="font-size:12px;margin:12px 0 6px">
+      ${t.query_count} queries · max ${t.hops} hops · ${t.latency_ms} ms total</div>
+    <pre>transport        ${esc(c.transport)}
+read_epoch       ${c.read_epoch}
+storage_sequence ${c.storage_sequence}
+bookmark         ${esc(c.bookmark || "")}</pre>
+    <div class="muted" style="font-size:11.5px">
+      Read epoch and bookmark are taken from the engine's own response, not composed here.</div>
+    <pre>${esc((t.queries[t.queries.length - 1] || {}).cypher || "")}</pre>`;
+}
+
+async function renderInspect() {
+  const el = document.getElementById("inspect");
+  el.innerHTML = `<div class="empty">loading…</div>`;
+  try {
+    if (tab === "graph") el.innerHTML = renderGraph();
+    else if (tab === "resolution") el.innerHTML = await renderResolution();
+    else if (tab === "conflicts") el.innerHTML = await renderConflicts();
+    else el.innerHTML = renderTrace();
+  } catch (err) { el.innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+}
+
+document.querySelectorAll(".tab").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".tab").forEach(x => x.setAttribute("aria-selected", x === b));
+  tab = b.dataset.tab; renderInspect();
+});
+document.getElementById("askForm").onsubmit = e => {
+  e.preventDefault();
+  const q = document.getElementById("q").value.trim();
+  if (q) ask(q);
+};
+
+renderExamples(); loadStatus(); renderInspect();
+</script>
+</body>
+</html>
