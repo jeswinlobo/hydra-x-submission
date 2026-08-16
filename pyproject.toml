@@ -1,0 +1,33 @@
+[project]
+name = "tracegraph"
+version = "0.1.0"
+description = "Provenance-first enterprise ontology and answer controller over HydraDB"
+requires-python = ">=3.10"
+dependencies = [
+    # Parquet row-group streaming. pandas is deliberately absent: it coerces
+    # int64 to float64 on any null, which silently corrupts 63-bit node ids.
+    "pyarrow>=21,<22",
+    # Bolt transport. The HTTP query engine cannot execute the UNWIND vertex
+    # upsert form, so all ingestion goes through the Neo4j driver.
+    "neo4j>=5.28,<7",
+    # HTTP query API, used for judge-visible reads that carry read_epoch.
+    "httpx>=0.28,<1",
+    "anthropic>=0.60,<1",
+    "python-dotenv>=1,<2",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<9"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tracegraph"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "live: requires a running HydraDB node (scripts/01_hydra_up.sh)",
+]

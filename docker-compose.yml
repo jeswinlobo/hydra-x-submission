@@ -1,0 +1,42 @@
+# Local HydraDB node for TraceGraph development.
+#
+# Configuration follows hydradb/README.md ("Run with Docker") verbatim. The image
+# is pinned by immutable digest rather than `latest` so a moved tag cannot change
+# engine behaviour underneath the contract tests.
+#
+# Start with `scripts/01_hydra_up.sh`, which exports TRACEGRAPH_UID/GID and
+# creates the store, cache, and auth-token paths the node expects to already
+# exist. `docker compose up -d` on its own will fail without them.
+services:
+  hydradb:
+    image: ghcr.io/hydra-db/hydradb@sha256:db78309a233be54662db29744047e985a39b51c45a270d1a1f47c31a62cdb709
+    container_name: tracegraph-hydradb
+    # The image runs as uid 10001; the bind mount is owned by the host user.
+    # Without this the node cannot write its store and fails on first storage use.
+    user: "${TRACEGRAPH_UID}:${TRACEGRAPH_GID}"
+    ports:
+      - "7687:7687"   # Bolt, Neo4j-driver compatible
+      - "8443:8443"   # HTTP JSON/NDJSON query API
+      - "9090:9090"   # admin: readiness and Prometheus metrics
+    volumes:
+      - ./hydradb-data:/data
+    environment:
+      CLOUD_PROVIDER: local
+      LOCAL_PATH: /data/store
+      GRAPH_NAMESPACE: default
+      GRAPH_ID: default
+      GRAPH_CELL_ID: cell-0
+      GRAPH_CELLS: cell-0
+      GRAPH_NODE_ID: node-0
+      GRAPH_BOLT_NODE_ADDRESSES: node-0=127.0.0.1:7687
+      GRAPH_ADVERTISED_BOLT_ADDR: 127.0.0.1:7687
+      GRAPH_DATA_CACHE_DIR: /data/cache
+      GRAPH_AUTH_TOKEN_FILE: /data/auth-token
+      GRAPH_ALLOW_PLAINTEXT: "true"
+      # Query futures overflow the default thread stack; the node otherwise
+      # serves /readyz and then aborts on the first query.
+      RUST_MIN_STACK: "33554432"
+    # Host has ~9 GB free; leave room for Python, SQLite, and the OS during
+    # bulk ingestion.
+    mem_limit: 6g
+    restart: unless-stopped

@@ -46,3 +46,6 @@ coverage/
 # Operating system files
 .DS_Store
 Thumbs.db
+
+# Evaluation-only oracle (never read by ingestion or answering)
+/eval-oracle/

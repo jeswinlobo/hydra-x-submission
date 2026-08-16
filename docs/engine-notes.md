@@ -1,0 +1,176 @@
+# HydraDB engine notes — verified against the pinned image
+
+Everything here was executed against
+`ghcr.io/hydra-db/hydradb@sha256:db78309a2…` (upstream commit
+`6a2fbb192f37f51a93690a2ae2d2f5e27e6e4219`) rather than read off documentation.
+Where the shipped docs and the running engine disagree, the engine wins and the
+disagreement is called out. `scripts/probe_bolt.py` and `scripts/probe_reads.py`
+reproduce every result; `tests/test_hydra_contract.py` holds the ones the code
+depends on.
+
+## Transports are not interchangeable
+
+| | Bolt `bolt://127.0.0.1:7687` | HTTP `:8443/v1/graphs/default/query` |
+|---|---|---|
+| Auth | `auth=("neo4j", <token>)`, `database="default"` | `Authorization: Bearer <token>` + `X-Graph-Namespace: default` |
+| `UNWIND` batches | **Yes** | No — list-of-maps parameters are a transport-level type |
+| Vertex upsert | **Yes** (only via `UNWIND`) | **No** |
+| `read_epoch` / `bookmark` in response | bookmark via driver | **both, in the response body** |
+
+**Ingestion must use Bolt.** The HTTP query engine rejects every vertex-upsert
+form with `MERGE with following clauses is not executable in Query engine`, and
+a bare `MERGE (n:Label {id: …})` with `only one-hop edge patterns are executable
+in Query engine MERGE`. Reads work on either; HTTP is preferred for
+judge-visible reads because the response carries `read_epoch` and `bookmark`
+directly:
+
+```json
+{"query_id":"http-query-1","columns":["id"],"rows":[[{"type":"vertex_id","value":0}]],
+ "read_epoch":0,"next_cursor":null,
+ "bookmark":"sgk:1:64656661756c74:64656661756c74:63656c6c2d30:0"}
+```
+
+The bookmark is `sgk:<version>:<hex namespace>:<hex graph>:<hex cell>:<sequence>`
+— `64656661756c74` is `default`, `63656c6c2d30` is `cell-0`, and the trailing
+integer is the SlateDB commit sequence. That is a real storage sequence read off
+a live response, so the trace can display it without inventing anything.
+
+## A bare `{id: N}` pattern is an address, not an existence check
+
+This is the highest-consequence finding, and it is silent:
+
+```cypher
+MATCH (n {id: 999999}) RETURN n.id AS id      -- returns a row. Node never existed.
+MATCH (n {id: 999999}) RETURN count(*) AS c   -- returns 1.
+MATCH (n:Doc {id: 999999}) RETURN n.id AS id  -- returns nothing. Correct.
+```
+
+Node ids are addresses in an object-store-native engine, so an id-only pattern
+resolves without hydrating the vertex. Only a label (or another property
+predicate) forces hydration and therefore filtering.
+
+**Every existence check carries a label.** Citation validation is the place this
+matters most: "does this dsid exist in the graph" written as a bare-id match
+passes for ids that were never written, which would make the submission's
+100%-valid-citations claim vacuous. `tests/test_hydra_contract.py` pins both
+halves.
+
+## Write forms that execute
+
+Vertex upsert — always through `UNWIND`, even for a single row, and the label is
+applied in `SET` rather than in the `MERGE` pattern:
+
+```cypher
+UNWIND $rows AS row
+MERGE (n {id: row.vertex})
+SET n:Document, n.dsid = row.dsid, n.title = row.title
+```
+
+Folding properties into the pattern (`MERGE (n:Document {id: row.vertex, dsid: …})`)
+is rejected: the pattern is the identity being matched, so extra properties
+would rewrite what it matched.
+
+Edge upsert — one directed, single-typed relationship per batch, endpoints
+matched by label + id first, relationship identified by its own deterministic
+`id`:
+
+```cypher
+UNWIND $rows AS row
+MATCH (s:Entity {id: row.src}), (d:Document {id: row.dst})
+MERGE (s)-[r:MENTIONED_IN {id: row.eid}]->(d)
+SET r.method = row.method, r.confidence = row.confidence
+```
+
+`CREATE` also works here but is not idempotent — replaying it produces a second
+parallel edge. `MERGE` keyed on the deterministic edge id is what makes replay
+safe. *(cypher-compat.md says an `UNWIND MATCH` "must end in `RETURN` or
+`DELETE`"; the engine accepts `MERGE … SET`, and the loader relies on it.)*
+
+Property values are scalars only — `UNWIND row 0 field tags must be scalar`.
+Lists, and therefore aliases, evidence lists, and multi-valued attributes, are
+modelled as nodes and edges. `2**63 - 1` round-trips through Bolt exactly, so
+63-bit ids are safe.
+
+### Batches are capped at 1024 items
+
+Admission control rejects anything larger:
+
+```
+client_query_batch_items rejected by admission control: actual 2000 exceeds limit 1024
+```
+
+This is a hard ceiling rather than a tuning knob, so `config.NODE_BATCH_SIZE`
+and `config.EDGE_BATCH_SIZE` sit at 1000 and the loader refuses a larger value
+up front instead of discovering it mid-ingest.
+
+### Measured throughput
+
+5,000 nodes in 0.26 s — **~19,000 rows/second** at a batch size of 1000, steady
+across batches. Registering all 511,962 documents is therefore well under a
+minute of database time, and Parquet reading and parsing, not the graph, set the
+pace of a full ingest. Replaying the same job with a checkpoint present executes
+zero batches.
+
+## There is no batch multi-id read
+
+Three separate rejections close off the obvious approaches:
+
+| Attempt | Result |
+|---|---|
+| `WHERE n.id IN $ids` | `composite parameter $ids is only supported as an UNWIND batch input` |
+| `UNWIND $rows AS row MATCH (n:Doc {id: row.id}) RETURN …` | `UNWIND batch supports one-hop relationships only` |
+| Two statements in one request | `query transport requires exactly one Cypher statement` |
+
+What works instead, in increasing order of power:
+
+1. **`OR` chain** — `MATCH (n:Doc) WHERE n.id = $a OR n.id = $b RETURN …`.
+   Fine for a handful of ids, but it is a label scan, so cost grows with the
+   label rather than with the id count. Keep it off the hot path once the
+   corpus is loaded.
+2. **Id-anchored traversal, one query per anchor** — the workhorse. Each query
+   is a cheap address lookup plus a typed adjacency scan:
+   `MATCH (e:Entity)-[r:MENTIONED_IN]->(d:Document {id: $id}) RETURN …`.
+   Ten candidate documents means ten small queries, which is the intended shape.
+3. **`algo.MSpaths`** — the native multi-source fan-out, and the reason the
+   graph is not just a store. It resolves many indexed source and target values
+   in one call:
+
+```cypher
+CALL algo.MSpaths({sourceLabel: 'Entity', sourceProperty: 'name',
+                   sourceValues: ['sam', 'soham'],
+                   targetLabel: 'Document', targetProperty: 'dsid',
+                   targetValues: ['dsid_a', 'dsid_b'],
+                   relTypes: ['MENTIONED_IN'], relDirection: 'both',
+                   maxLen: 3, pathCount: 5, resultLimit: 50})
+YIELD path RETURN path
+```
+
+Paths come back as alternating node-property maps and relationship types —
+`[{'name': 'sam'}, 'MENTIONED_IN', {'dsid': 'dsid_a', 'title': 'alpha'}]` —
+which renders directly as an evidence path without a second hydration query.
+
+Two syntactic constraints on the procedures, both discovered the hard way:
+
+- `sourceLabel` and `targetLabel` must be **string literals**. Passing a
+  parameter fails with `sourceLabel must be a string literal`, so the label is
+  interpolated and therefore has to be identifier-validated first
+  (`hydra_client.check_identifier`).
+- Anywhere else in Cypher, **a node carrying a label or a non-id property must
+  be named**. `MATCH (:Entity)-[r:MENTIONED_IN]->(:Document)` is rejected with
+  `node labels and non-id properties require a named node`; bind the endpoints
+  (`MATCH (e:Entity)-[r:MENTIONED_IN]->(d:Document)`) even when the bindings go
+  unused.
+
+A bulk `DETACH DELETE` over thousands of nodes also exceeds the transaction
+budget (`cypher_delete_ver…`); delete in bounded passes.
+
+## Read clauses confirmed working
+
+`OPTIONAL MATCH` (reads only), `UNION`, `collect()`, `STARTS WITH`, `ORDER BY`
+/ `SKIP` / `LIMIT`, bounded variable-length `*1..3`, and `algo.SPpaths` /
+`algo.SSpaths` / `algo.MSpaths`.
+
+Not available, and worth remembering before writing a query: `IN`, `CONTAINS`,
+`ENDS WITH`, `IS NULL`, `RETURN *`, `min()`, `max()`, `DISTINCT` inside an
+aggregate, undirected patterns, unbounded `*`, and `WITH` that aliases or
+filters. The maximum on a variable-length pattern is mandatory.

@@ -76,9 +76,9 @@ Every important README or video claim must be backed by a live interaction, Hydr
 - The documented Parquet schema contains doc_id, source_type, title, and content. Authors, timestamps, threads, recipients, and other structure must be verified inside actual content before parser assumptions are made.
 - Secondary dataset: dataset/HERB/, CC-BY-NC-4.0. Use only for isolated research evaluation. Never use its team and customers oracle fields as retrievable evidence.
 - Local machine: 16 cores, 15GB RAM, RTX 3050 4GB, Docker available, about 18GB free disk.
-- LLM: self-hosted gpt-oss-120b on a DigitalOcean AMD GPU droplet through vLLM's OpenAI-compatible API. Endpoint status is unverified; a connectivity and structured-JSON smoke test is an Aug 16 morning gate, and provisioning happens first if the droplet is not live.
+- LLM: the Claude API. Bulk tier-1 extraction uses claude-haiku-4-5-20251001 via the Message Batches API (structured outputs, 50% batch discount); synthesis, adjudication, and the proxy-evaluation judge use claude-sonnet-5. A one-document structured-output smoke test is a gate before any bulk extraction; a 50-document pilot batch is submitted and costed from actual usage before the full tier-1 batch.
 - Workspace state as of Aug 15 night: the repository contains only PLAN.md, README.md, and .gitignore. No code, indexes, or eval split exists. The ghcr.io/hydra-db/hydradb:latest image is pulled but no container has ever been created, so no HTTP/Bolt round trip has run yet.
-- The hydradb reference clone is not in the workspace. Re-materialize it on Aug 16 (unzip ~/Downloads/glasshouse-hydradb-main.zip or fresh-clone github.com/hydra-db/hydradb) into the gitignored hydradb/ path.
+- The hydradb reference clone is not in the workspace. Fresh-clone github.com/hydra-db/hydradb into the gitignored hydradb/ path and record the upstream commit.
 - Deadline: Aug 20, 2026, 11:59 PM PT, which is Aug 21, 12:29 PM IST. Late submissions are not accepted. Target completed submission: Aug 20 IST evening, leaving about 16 hours of true buffer.
 
 ## HydraDB constraints controlling the design
@@ -412,7 +412,7 @@ Report official EnterpriseRAG-Bench metrics only when using the official evaluat
 - Invalid extra documents.
 - Category results.
 
-Scores judged internally by gpt-oss-120b are proxy evaluation, never official GPT-5.4 leaderboard scores.
+Scores judged internally by claude-sonnet-5 are proxy evaluation, never official GPT-5.4 leaderboard scores.
 
 Additional metrics:
 
@@ -497,25 +497,25 @@ The original six-day schedule assumed Aug 14 delivered the vertical slice and Au
 
 ### Aug 16 — vertical slice and full discovery
 
-- Restore the hydradb reference clone (Downloads zip or fresh clone) into the gitignored hydradb/ path.
+- Fresh-clone the hydradb reference repository into the gitignored hydradb/ path and record the upstream commit.
 - Start the pinned HydraDB container; prove HTTP and Bolt write/read round trips.
 - Verify the ingestion-gating behaviors from the constraints table against the live container: MERGE semantics, UNWIND batching, node and relationship ID identity.
 - Implement the ID registry with collision detection and the minimal Bolt loader.
 - Implement the source-aware parser needed by the vertical slice; inspect representative documents from all nine sources while parsing.
 - Register all 511,962 Document nodes and build contentless FTS5 over title and content as a background bulk job while coding continues.
-- Run the vLLM connectivity and one-document structured-JSON smoke test; provision the droplet first if it is not live.
+- Run the Claude API connectivity and one-document structured-output smoke test before any bulk extraction.
 - Shallow-clone and pin the EnterpriseRAG-Bench evaluator reference; verify its command surface.
 
 Exit gate: one reproducible question flows from candidate retrieval through HydraDB evidence to a grounded answer with a valid dsid citation. Do not start bulk extraction before this works.
 
-Evening cut order if short: defer the vLLM throughput benchmark, then full parser fixtures, then full-corpus FTS completion. Non-negotiable: HydraDB round trip, ID/loader path, slice-level retrieval, one grounded answer.
+Scope-reduction order if blocked: defer the extraction-throughput pilot, then full parser fixtures, then full-corpus FTS completion. Non-negotiable: HydraDB round trip, ID/loader path, slice-level retrieval, one grounded answer.
 
 ### Aug 17 — structure, entity resolution, and ontology
 
 - Rich structural parsers: Slack, Gmail, and GitHub guaranteed; add Linear and Jira only if the ingestion benchmark shows headroom.
 - Ingest high-confidence entities and references; finish relationship IDs and checkpoint/resume.
 - Benchmark ingestion throughput, batch sizes, session counts, disk growth, and query budgets.
-- Benchmark vLLM tokens/sec and documents/hour before fixing extraction tiers.
+- Run a 50-document pilot batch and cost it from actual API usage before fixing extraction tiers.
 - Implement strong-key and blocked entity resolution with cannot-link rules and HydraDB graph evidence.
 - Add Class, Predicate, ClaimGroup, Claim, Value, and EvidenceSpan schema.
 - Implement raw-to-canonical predicate alignment.
@@ -566,7 +566,7 @@ Exit gate: stable UI, recorded dev metrics, fresh sample quickstart passing, no 
 
 | Risk signal | Decision |
 |---|---|
-| vLLM throughput is below budget | Reduce extraction breadth; keep full retrieval coverage |
+| Extraction cost or latency is above budget | Reduce extraction breadth; keep full retrieval coverage |
 | Embeddings are incomplete by Aug 17 | Ship complete FTS plus embeddings for titles/high-value chunks and disclose coverage |
 | HydraDB store threatens disk budget | Keep all metadata/structure, reduce claim coverage, never duplicate bodies |
 | A source parser is unreliable | Store documents and only high-confidence references |
@@ -667,7 +667,7 @@ The project is ready only when:
 
 1. Track: Enterprise Context & Ontology.
 2. HydraDB: external unmodified Docker service through Bolt/HTTP.
-3. LLM: self-hosted gpt-oss-120b on DigitalOcean AMD GPU through vLLM.
+3. LLM: Claude API — claude-haiku-4-5-20251001 (batched structured extraction) and claude-sonnet-5 (synthesis, adjudication, proxy-evaluation judge).
 4. Primary corpus: EnterpriseRAG-Bench.
 5. Deadline: Aug 20, 2026, 11:59 PM PT (Aug 21, 12:29 PM IST); target submission Aug 20 IST evening.
 6. Product: web UI with focused interactive evidence graph.
