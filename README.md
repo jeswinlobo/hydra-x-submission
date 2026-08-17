@@ -173,17 +173,17 @@ Anthropic API key.
 
 ```bash
 git clone https://github.com/jeswinlobo/hydra-x && cd hydra-x
-uv sync
-
 cp .env.example .env          # add ANTHROPIC_API_KEY
-./scripts/00_fetch_refs.sh    # pinned HydraDB + benchmark references
-./scripts/01_hydra_up.sh      # start HydraDB, prove a round trip
-
 # place the corpus at dataset/EnterpriseRAG-Bench/data/
-uv run python scripts/70_register_corpus.py   # index 511,962 documents (~5 min)
-uv run python scripts/30_load_slice.py        # entity resolution over a slice
-./scripts/60_serve.sh                         # → http://127.0.0.1:8000
+
+./scripts/bootstrap.sh        # everything, in order, ~10 minutes
+./scripts/60_serve.sh         # → http://127.0.0.1:8000
 ```
+
+`bootstrap.sh` checks its prerequisites before running anything slow, and every
+stage is resumable, so it is safe to run twice. `--fast` skips the slice: questions
+still work, because documents are enriched on demand, but the resolution and
+conflict panels start empty.
 
 `scripts/01_hydra_up.sh` does not report success on a listening port — it
 round-trips a real query first, because a port is not proof.
