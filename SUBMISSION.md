@@ -72,10 +72,10 @@ three capabilities disappear entirely without it.
 graph first — who speaks in which channel, which mention sits in which document
 — and ambiguous surfaces are then scored by traversals over that structure:
 co-occurrence in the same document at two hops, participation in the same
-channel at one. On the loaded slice this decided **666 surfaces** that string
+channel at one. On the loaded slice this decided **766 surfaces** that string
 matching cannot, including `alex` → Alex Chen over 47 competing candidates at
 0.95 confidence. Where the graph does not separate candidates, the mention stays
-unresolved with its candidate set recorded as `CANDIDATE_FOR` edges — 1,640 of
+unresolved with its candidate set recorded as `CANDIDATE_FOR` edges — 1,672 of
 them keep a competing set rather than being guessed at.
 
 Merging is equally a refusal. Two people sharing a full name are folded together

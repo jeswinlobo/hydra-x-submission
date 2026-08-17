@@ -68,11 +68,11 @@ MATCH (e:Entity {id: $eid})-[:PARTICIPATED_IN]->(c:Channel {id: $cid})
 RETURN count(*) AS n
 ```
 
-On the loaded slice this decided **666 surfaces** that string matching cannot —
+On the loaded slice this decided **766 surfaces** that string matching cannot —
 `alex` resolved to Alex Chen over 47 competitors, at 0.95 confidence. Re-check
 with `scripts/35_verify_gate.py`, which reads the count back out of the graph.
 Where the graph does not separate the candidates the mention stays unresolved
-with its candidate set recorded — 1,640 do — because a wrong merge is worse than
+with its candidate set recorded — 1,672 do — because a wrong merge is worse than
 an honest "cannot tell".
 
 **Resolution is judged in both directions, so it refuses in both.** Splitting one
@@ -198,6 +198,25 @@ once. Answering spent longer scanning parquet than talking to the model.
 `scripts/71_repartition_corpus.py` writes a lossless copy at 2,048 rows per group
 and indexes that: **4,465ms → 12ms per document fetch**, and the preload scan on
 the first question disappears entirely.
+
+**Graph expansion of retrieval was tried, measured, and removed.** The obvious
+next move is to widen retrieval by traversal: take the documents search found,
+walk `Document ←MENTIONED_IN— Mention —RESOLVES_TO→ Entity ←RESOLVES_TO— Mention
+—MENTIONED_IN→ Document`, and read the neighbours. It works as a query — five
+hops, ~250 ms, and it does reach documents lexical search did not.
+
+It changed no answers. On every question tried it produced the same citations
+and the same claims one to three seconds slower, and gating it to fire only on
+thin evidence made it fire never: search returns eight documents, each carrying
+around twenty extracted claims, so evidence is never thin. The bottleneck is not
+how much evidence there is but whether the right document was retrieved, and
+expanding from the wrong seed reaches the wrong neighbours. It was removed
+rather than shipped as an impressive-sounding path nothing takes.
+
+Where the graph *does* do multi-hop work is identity: 666 surfaces resolved by
+traversal over stored structure, and `algo.SPpaths` returning the path behind a
+decision. That is a real traversal answer to a question an index cannot answer;
+retrieval expansion was not.
 
 **No graph-vs-no-graph ablation was run.** PLAN.md called for four variants —
 lexical only, hybrid, hybrid plus graph structure, full TraceGraph — and only

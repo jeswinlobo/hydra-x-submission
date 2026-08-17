@@ -41,6 +41,19 @@ from tracegraph.resolve import pack  # noqa: E402
 ENTITY = "Entity"
 
 
+def live_entities(client: HydraClient, run_id: str) -> set[int]:
+    """Ids of entities something still resolves to.
+
+    One traversal rather than one per entity: anchoring a RESOLVES_TO query on a
+    single vertex is cheap, but a thousand of them is not — the cost of a
+    relationship walk tracks the anchor label, not the rows returned (see
+    docs/engine-notes.md).
+    """
+    return {row["eid"] for row in client.bolt_read(
+        "MATCH (m:Mention)-[r:RESOLVES_TO]->(e:Entity) WHERE r.run_id = $run "
+        "RETURN DISTINCT e.id AS eid LIMIT 20000", {"run": run_id})}
+
+
 def audit_entities(client: HydraClient, run_id: str) -> list[dict]:
     """Entities holding an address that provably is not theirs.
 
@@ -61,21 +74,35 @@ def audit_entities(client: HydraClient, run_id: str) -> list[dict]:
     dressed as a repair.
     """
     rows = client.bolt_read(
-        "MATCH (e:Entity) WHERE e.run_id = $r RETURN e.key AS key, e.name AS name, "
-        "e.emails AS emails, e.domains AS domains ORDER BY e.key", {"r": run_id})
-    keys = {row["key"] for row in rows if row["key"]}
+        "MATCH (e:Entity) WHERE e.run_id = $r RETURN e.id AS id, e.key AS key, "
+        "e.name AS name, e.emails AS emails, e.domains AS domains ORDER BY e.key",
+        {"r": run_id})
+    keys = {row["key"]: row["id"] for row in rows if row["key"]}
+    live = live_entities(client, run_id)
 
     damaged = []
     for row in rows:
         key = row["key"] or ""
         own = key.split(":", 1)[1] if ":" in key else ""
 
+        # An identity nothing resolves to any more cannot mislead an answer,
+        # whatever its properties still say. It is the residue of a merge, and
+        # deleting it would strand anything else that references it.
+        if row["id"] not in live:
+            continue
+
         emails = [e for e in (row["emails"] or "").split(";") if e]
         kept, fragments, stranded, merged_in = [], [], [], []
         for email in emails:
             if "@" not in email:
                 fragments.append(email)
-            elif email != own and f"email:{email}" in keys:
+            elif (email != own and f"email:{email}" in keys
+                  and keys[f"email:{email}"] in live):
+                # The absorbed address has its own vertex *and* mentions are
+                # still resolving to it, so the graph holds this person twice
+                # and answers can be attributed to either. A vertex nothing
+                # points at any more is an orphan, not damage, and is left be —
+                # deleting it would strand whatever else references it.
                 stranded.append(email)
             else:
                 kept.append(email)

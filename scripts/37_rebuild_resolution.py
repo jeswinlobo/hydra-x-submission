@@ -95,6 +95,63 @@ def load_and_parse(client: HydraClient, run_id: str) -> dict:
     return parsed
 
 
+def repoint_merged_away(client: HydraClient, run_id: str, resolver: Resolver,
+                        entity_ids: dict, want: dict) -> int:
+    """Move mentions off identities the merge folded into somebody else.
+
+    The pass above reconciles every mention it re-derives from the corpus. A
+    mention the graph holds but re-parsing no longer produces — offsets shifted,
+    or it fell past the per-document cap — is never revisited, so it keeps
+    pointing at whichever vertex it was given first. When that vertex has since
+    been merged away, the result is a duplicate identity: the same person
+    reachable under two vertices, which is the fragmentation this whole module
+    exists to prevent, arriving by the back door.
+
+    Both vertices stay — deleting one would orphan whatever else references it —
+    but every mention is moved onto the survivor, so nothing resolves to a
+    identity the rule no longer recognises.
+    """
+    live = set(entity_ids)
+    rows = client.bolt_read(
+        "MATCH (e:Entity) WHERE e.run_id = $run RETURN e.id AS id, e.key AS key",
+        {"run": run_id})
+    moved, deletions, additions = 0, [], []
+    for row in rows:
+        key = row["key"]
+        if not key or key in live:
+            continue
+        address = key.split(":", 1)[-1]
+        survivor = resolver._by_email.get(address)
+        if not survivor or survivor not in entity_ids:
+            continue
+        target = entity_ids[survivor].id
+        for m in client.bolt_read(
+                "MATCH (m:Mention)-[r:RESOLVES_TO]->(e:Entity) "
+                "WHERE e.id = $eid AND r.run_id = $run RETURN m.id AS mid",
+                {"eid": row["id"], "run": run_id}):
+            mid = m["mid"]
+            if want.get(mid) == row["id"]:
+                continue  # the rebuild genuinely wants it here
+            deletions.append(edge_identity("RESOLVES_TO", mid, row["id"]).id)
+            additions.append({
+                "src": mid, "dst": target,
+                "eid": edge_identity("RESOLVES_TO", mid, target).id,
+                "method": "merged_identity", "confidence": 1.0,
+                "evidence": f"{address} was folded into {survivor}",
+                "candidates": 1, "run_id": run_id})
+            moved += 1
+
+    if deletions:
+        delete_edges(client, "RESOLVES_TO", deletions)
+    if additions:
+        upsert_edges(client, "RESOLVES_TO", additions,
+                     job=f"rebuild-repoint:{run_id}", source_label=MENTION,
+                     target_label=ENTITY,
+                     properties=["method", "confidence", "evidence",
+                                 "candidates", "run_id"])
+    return moved
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--apply", action="store_true", help="write the reconciliation")
@@ -297,6 +354,10 @@ def main() -> int:
         if statuses:
             upsert_nodes(client, MENTION, statuses, job=f"rebuild-st:{run_id}",
                          properties=["status", "method", "candidates", "reason"])
+
+        moved = repoint_merged_away(client, run_id, resolver, entity_ids, want)
+        if moved:
+            print(f"  repointed {moved} mentions off identities that were merged away")
 
         registry.register_many(pending)
         resolved = sum(1 for s in statuses if s["status"] == "resolved")
