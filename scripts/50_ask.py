@@ -66,7 +66,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("question", nargs="*", default=None)
     ap.add_argument("--run-id", default=None)
-    ap.add_argument("--demo", action="store_true", help="run the three demo questions")
+    ap.add_argument("--demo", action="store_true", help="run the four demo questions")
     ap.add_argument("--json", action="store_true", help="print the raw contract")
     args = ap.parse_args()
 

@@ -33,6 +33,7 @@ from .loader import upsert_edges, upsert_nodes
 from .parquet_reader import RowLocator
 from .parsers import normalise_content, parse_document
 from .parsers.base import PERSON
+from .reconcile import reconcile_conflicts
 from .resolve import METHOD_GRAPH_EVIDENCE, METHOD_UNRESOLVED, Resolver, pack
 
 DOC = "Document"
@@ -72,6 +73,8 @@ class IngestReport:
     unresolved: int = 0
     claims: int = 0
     spans: int = 0
+    conflicts: int = 0
+    conflict_edges: int = 0
     rejected_spans: int = 0
     seconds: float = 0.0
     error: str = ""
@@ -92,11 +95,14 @@ class OnDemandIngestor:
 
     def __init__(self, client: HydraClient, run_id: str, *,
                  extract: bool = True, max_body: int = 8000,
-                 resolve: bool = True) -> None:
+                 resolve: bool = True, reconcile: bool = True) -> None:
         self.client = client
         self.run_id = run_id
         self.extract = extract
         self.resolve = resolve
+        # Whether newly written claims re-adjudicate the facts they touch. Off
+        # only for tests that assert on claim writes in isolation.
+        self.reconcile = reconcile
         self.max_body = max_body
         self.registry = IdRegistry()
         self.locator = RowLocator(config.locator_parquet(), config.locator_db(),
@@ -368,6 +374,7 @@ class OnDemandIngestor:
                              target_label=SPAN, properties=["run_id"])
             report.claims = len(claim_rows)
             report.spans = len(span_rows)
+
 
         self.registry.register_many(pending)
         self._present.add(dsid)
@@ -661,4 +668,29 @@ class OnDemandIngestor:
             prepared = results.get(dsid)
             reports.append(self._commit(prepared) if prepared is not None
                            else IngestReport(dsid, error="no result"))
+
+        # Re-adjudicate once for the whole batch, after every claim is written.
+        #
+        # Without this step `CONFLICTS_WITH` edges existed only for documents
+        # present when the bulk pass ran, so a disagreement introduced by a
+        # document a question had just reached was invisible and the answer came
+        # back singular and confident. Under `--fast`, where nothing is
+        # preloaded, every disagreement was.
+        #
+        # At the batch boundary rather than per document because the read is a
+        # single bulk load either way — doing it per document paid it four times
+        # for one question.
+        written = [r.dsid for r in reports if r.claims and not r.already_present]
+        if self.reconcile and written:
+            with self._lock:
+                try:
+                    outcome = reconcile_conflicts(
+                        self.client, self.run_id, written, registry=self.registry)
+                    for report in reports:
+                        if report.dsid in written:
+                            report.conflicts = outcome.conflicts_found
+                            report.conflict_edges = outcome.edges_written
+                except Exception as exc:  # noqa: BLE001 - a question must still answer
+                    for report in reports:
+                        report.error = report.error or f"reconcile failed: {exc}"[:200]
         return reports

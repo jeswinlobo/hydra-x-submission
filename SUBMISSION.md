@@ -76,7 +76,7 @@ channel at one. On the loaded slice this decided **766 mention occurrences
 across 24 distinct ambiguous surfaces**, including `alex` → Alex Chen over 47
 competing candidates at 0.95 confidence. Where the graph does not separate
 candidates the mention stays unresolved with its candidate set recorded as
-`CANDIDATE_FOR` edges — 1,672 mentions across 70 surfaces keep a competing set
+`CANDIDATE_FOR` edges — 1,682 mentions across 72 surfaces keep a competing set
 rather than being guessed at.
 
 Merging is equally a refusal. Two people sharing a full name are folded together
@@ -130,7 +130,7 @@ batch, **62 (12%) cited evidence not appearing verbatim in the source and were
 rejected**.
 
 Ingestion runs at ~19,000 nodes/second; registering 511,958 document ids produced
-zero collisions. 159 tests pass, 20 of them against the live engine.
+zero collisions. 164 tests pass, 23 of them against the live engine.
 
 ## Team members and contributions
 

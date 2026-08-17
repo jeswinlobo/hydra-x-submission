@@ -87,7 +87,7 @@ accounts for most of the volume. `scripts/35_verify_gate.py` reports both,
 straight out of the graph.
 
 Where the graph does not separate the candidates the mention stays unresolved
-with its candidate set recorded — **1,672 mentions across 70 surfaces** — because
+with its candidate set recorded — **1,682 mentions across 72 surfaces** — because
 a wrong merge is worse than an honest "cannot tell".
 
 **Resolution is judged in both directions, so it refuses in both.** Splitting one
@@ -146,6 +146,25 @@ anchoring on the evidence claims still over-flagged, because every claim
 extracted from a cited document is handed to the model, not only the ones it
 used. The test that holds is whether the answer **states** the contested value.
 Crying wolf costs exactly what silence costs.
+
+**Detection runs where the claims are written**, not once at setup.
+`CONFLICTS_WITH` edges used to be produced by a single bootstrap pass, so the
+answer path — which walks persisted edges — could only see disputes that existed
+then. A disagreement introduced by a document a question had just reached was
+invisible, and under `--fast`, where nothing is preloaded, every disagreement
+was: 23 edges for 2,606 claims. On-demand ingestion now re-adjudicates the facts
+its documents touch, once per batch, and the graph holds 375 edges for 3,028
+claims. `scripts/55_conflicts.py` remains for a full sweep; the two agree because
+both call the same detector and edge ids are deterministic, so a pair judged
+twice converges on one edge.
+
+That reconciliation is a single bulk read, which is the opposite of what looked
+obvious. Fetching only the competing versions of one fact —
+`MATCH (d:Document)-[:ASSERTS]->(c:Claim) WHERE c.subject = … AND c.predicate = …`
+— walks the Document label to reach the claim and cost **3.4 seconds each**,
+thirty-six per question. Loading every claim in the run costs 3.8 seconds once.
+A narrower query is not a cheaper one when the cost tracks the anchor label
+rather than the rows returned.
 
 `algo.SPpaths` returns the path connecting a resolved identity to a channel it
 participates in, and the panel renders the elements the engine returned rather
@@ -233,10 +252,15 @@ real sentence is refused (`tests/test_conflicts.py`, `tests/test_parsers.py`).
 seconds and indexes in 312. Registering 511,958 document ids produced **zero
 collisions**.
 
-**Demo stability.** Ten consecutive rounds of the three demo questions, all
-clean: verdicts as expected, every citation validated against the graph, and the
-abstention citing nothing (`scripts/80_demo_check.py`). Latency p50 8.6s, p95
-13.5s.
+**Demo stability.** Ten consecutive rounds of the four demo questions — one
+supported, one contested, one either, one unanswerable — all clean
+(`scripts/80_demo_check.py`). It checks invariants rather than exact prose:
+every citation exists in the graph under a labelled match, an abstention carries
+no citations or claims, a `conflicting` verdict names the rival version, and a
+`supported` answer is not sitting on a dispute the system found. It also refuses
+to pass a run in which no question came back contested, because a controller
+that had quietly stopped detecting conflicts would otherwise score ten out of
+ten. Latency p50 7.7s, p95 13.1s.
 
 That p50 was 29.6s until the corpus was re-chunked. The file ships as a single
 row group holding all 511,962 documents, and parquet decodes a row group whole,
@@ -311,7 +335,7 @@ round-trips a real query first, because a port is not proof.
 ## Verifying the claims above
 
 ```bash
-uv run pytest                             # 159 tests, 20 against the live engine
+uv run pytest                             # 164 tests, 23 against the live engine
 uv run python scripts/35_verify_gate.py   # 11 checks, read back from the graph
 uv run python scripts/36_repair_graph.py  # audit identities and undecided mentions
 uv run python scripts/37_rebuild_resolution.py  # re-decide every identity, report drift

@@ -44,6 +44,7 @@ def main() -> int:
 
     failures: list[str] = []
     latencies: list[float] = []
+    seen_verdicts: dict[str, int] = {}
 
     with HydraClient() as client:
         client.verify()
@@ -83,6 +84,8 @@ def main() -> int:
                 # correct. What must never vary is the invariants below, and
                 # those are what this now holds the system to.
                 allowed = {expected} if isinstance(expected, str) else set(expected)
+                seen_verdicts[result.answerability] = (
+                    seen_verdicts.get(result.answerability, 0) + 1)
                 ok = result.answerability in allowed
                 if not ok:
                     failures.append(
@@ -129,6 +132,19 @@ def main() -> int:
 
         ingestor.close()
 
+    # At least one round must actually have produced a conflicting verdict.
+    #
+    # Without this the suite could not see the defect it was meant to guard:
+    # every question accepted more than one verdict, so a controller that never
+    # detected a conflict at all — which is exactly what shipping stale
+    # `CONFLICTS_WITH` edges amounted to — passed ten rounds out of ten.
+    wants_conflict = any(
+        "conflicting" in ({e} if isinstance(e, str) else set(e)) for _, e in DEMO)
+    if wants_conflict and not seen_verdicts.get("conflicting"):
+        failures.append(
+            f"no round produced a conflicting verdict in {args.rounds} rounds; "
+            "conflict detection is not reaching the answer path")
+
     print()
     if latencies:
         latencies.sort()
@@ -143,6 +159,8 @@ def main() -> int:
         print("\nNOT ready to record.")
         return 1
 
+    print(f"\nverdicts seen: "
+          + ", ".join(f"{k}={v}" for k, v in sorted(seen_verdicts.items())))
     print(f"\n{args.rounds} consecutive clean rounds. Ready to record.")
     return 0
 

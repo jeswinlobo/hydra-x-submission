@@ -10,10 +10,11 @@ So the list is defined once and imported by both. A question added here is a
 question the stability check will hold to its expected answerability before
 anyone records anything.
 
-The last two are not there to succeed. One lands on a fact the corpus contradicts
-itself about, and one is unanswerable outright — between them they cover the two
-behaviours the track brief asks for by name and that a confident-sounding system
-gets wrong: conflict resolution, and knowing when the answer is absent.
+Four questions covering the four verdicts the brief asks for. Two are not there
+to succeed: one lands on a fact the corpus contradicts itself about, and one is
+unanswerable outright. Those are the behaviours a confident-sounding system gets
+wrong, and they are the reason `scripts/80_demo_check.py` refuses to pass a run
+in which no question came back `conflicting`.
 """
 
 from __future__ import annotations
@@ -30,10 +31,15 @@ CONFLICTING = "conflicting"
 # supported answer is not sitting on an unreported dispute — do not vary.
 DEMO_QUESTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Which quantization profile caused the P95 latency regression?", (SUPPORTED,)),
+    # Four documents give Grace O'Connor four different titles, so whenever this
+    # is answered at all it is contested — eight rounds in ten. In the other two
+    # the model declined to state a role, which is a legitimate outcome and not
+    # something to pin a label against. What guarantees conflict detection is
+    # still reaching the answer path is the run-level check that *some* round
+    # came back contested, not a per-question label.
+    ("What is Grace O'Connor's role at Redwood?", (CONFLICTING, INSUFFICIENT)),
     ("What did Redwood commit to for SOC 2 and audit evidence?",
      (SUPPORTED, CONFLICTING)),
-    ("Interview slate and role anchors for the Staff Inference Engineer opening",
-     (SUPPORTED, CONFLICTING, INSUFFICIENT)),
     ("What is the Q4 2029 revenue target for the Antarctic division?", (INSUFFICIENT,)),
 )
 
