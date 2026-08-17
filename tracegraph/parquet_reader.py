@@ -359,8 +359,13 @@ class RowLocator:
                 doc_ids = batch.column(0).to_pylist()
                 # Rows stream straight into the open transaction so neither the
                 # batch list nor a pending-insert buffer scales with the corpus.
+                # The corpus contains a handful of repeated doc_ids. A duplicate
+                # identifier is a corpus defect rather than a reason to refuse
+                # to index 511,962 documents, and the two rows are the same
+                # citation as far as an answer is concerned, so the first
+                # occurrence wins and the rest are counted.
                 self._conn.executemany(
-                    "INSERT INTO doc_location (doc_id, row_group, row_index) "
+                    "INSERT OR IGNORE INTO doc_location (doc_id, row_group, row_index) "
                     "VALUES (?, ?, ?)",
                     (
                         (doc_id, row_group, row_index + offset)
@@ -382,8 +387,8 @@ class RowLocator:
         except sqlite3.IntegrityError as exc:
             self._conn.rollback()
             raise ValueError(
-                f"duplicate {DOC_ID_COLUMN} while indexing row group {row_group} of "
-                f"{self.parquet_path}; document ids must be unique ({exc})"
+                f"could not index row group {row_group} of {self.parquet_path} "
+                f"({exc})"
             ) from exc
         except BaseException:
             self._conn.rollback()

@@ -24,6 +24,7 @@ from typing import Sequence
 
 from . import fts
 from .hydra_client import HydraClient, parse_bookmark
+from .ids import IdRegistry
 from .llm import Evidence, synthesise_answer
 
 SUPPORTED = "supported"
@@ -67,11 +68,18 @@ class ControllerResult:
 class AnswerController:
     """Turns a question into a grounded answer or an abstention."""
 
-    def __init__(self, client: HydraClient, run_id: str, *, max_documents: int = 8) -> None:
+    def __init__(self, client: HydraClient, run_id: str, *, max_documents: int = 8,
+                 ingestor=None, ingest_budget: int = 4) -> None:
         self.client = client
         self.run_id = run_id
         self.max_documents = max_documents
+        # Supplying an ingestor is what turns this from a reader of a preloaded
+        # slice into something that answers over the whole corpus.
+        self.ingestor = ingestor
+        self.ingest_budget = ingest_budget
+        self.registry = IdRegistry()
         self._queries: list[TracedQuery] = []
+        self._ingested: list[dict] = []
 
     # --- graph access, every call traced ------------------------------------
 
@@ -108,18 +116,25 @@ class AnswerController:
         if not hits:
             return []
 
-        # Resolve ids to dsids in one anchored read rather than one per hit.
-        ordered = [node_id for node_id, _ in hits]
-        rows = self._run(
-            "resolve_candidates",
-            "MATCH (d:Document) WHERE d.run_id = $r AND (" +
-            " OR ".join(f"d.id = $i{n}" for n in range(len(ordered))) +
-            ") RETURN d.dsid AS dsid, d.id AS id",
-            {"r": self.run_id, **{f"i{n}": i for n, i in enumerate(ordered)}},
-        )
-        rank = {node_id: position for position, node_id in enumerate(ordered)}
-        candidates = sorted(rows, key=lambda row: rank.get(row["id"], 1 << 30))
-        return candidates[: self.max_documents]
+        # Resolve hits to dsids through the id registry, not the graph.
+        #
+        # Resolving through the graph would restrict candidates to documents
+        # already ingested, which is precisely the trap that made this a demo:
+        # retrieval searches all 511,962 documents, so most hits are documents
+        # the graph has never seen, and asking the graph to name them returns
+        # nothing at all. The registry holds every id ever minted, and the
+        # index rowid is that id, so the mapping needs no database round trip.
+        resolved: list[dict] = []
+        for node, _score in hits:
+            row = self.registry.lookup(node) if self.registry else None
+            if row is not None and row.node_type == "Document":
+                resolved.append({"dsid": row.natural_key, "id": node})
+        self._queries.append(TracedQuery(
+            operation="resolve_candidates(registry)",
+            cypher=f"id registry lookup x{len(hits)}",
+            hops=0, results=len(resolved), ms=0.0,
+        ))
+        return resolved[: self.max_documents]
 
     def claims_for(self, dsid: str) -> list[dict]:
         """Claims and their evidence spans for one document.
@@ -163,12 +178,38 @@ class AnswerController:
         started = time.perf_counter()
 
         candidates = self.retrieve_documents(question)
+
+        # Enrich whatever retrieval reached that the graph does not yet know
+        # about. Without this the system only answers questions about a preloaded
+        # slice: retrieval searches the whole corpus and finds the right
+        # document, the graph has nothing to say about it, and the controller
+        # abstains on a question the corpus plainly answers.
+        ingested: list[dict] = []
+        if self.ingestor is not None and candidates:
+            for report in self.ingestor.ingest_many(
+                [c["dsid"] for c in candidates], budget=self.ingest_budget
+            ):
+                if not report.already_present:
+                    ingested.append({
+                        "dsid": report.dsid, "claims": report.claims,
+                        "mentions": report.mentions,
+                        "rejected_spans": report.rejected_spans,
+                        "seconds": round(report.seconds, 2),
+                        "error": report.error,
+                    })
+        self._ingested = ingested
+
         evidence: list[Evidence] = []
         claims: list[dict] = []
         rejected_spans: list[dict] = []
 
         for candidate in candidates:
             dsid = candidate["dsid"]
+            if bodies is not None and dsid not in bodies and self.ingestor is not None:
+                # Span checking needs the body of a document enriched moments ago.
+                fetched = self.ingestor.body(dsid)
+                if fetched is not None:
+                    bodies[dsid] = fetched
             for row in self.claims_for(dsid):
                 quote = row["quote"] or ""
                 # A span is only evidence if it is still verbatim in the source.
@@ -251,6 +292,7 @@ class AnswerController:
                 "storage_sequence": scope.sequence if scope else None,
             },
             "query_count": len(self._queries),
+            "ingested_on_demand": self._ingested,
             "latency_ms": round((time.perf_counter() - started) * 1000, 2),
         }
 

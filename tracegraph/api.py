@@ -20,6 +20,7 @@ from . import config
 from .conflicts import ClaimRecord, detect_conflicts
 from .controller import AnswerController
 from .hydra_client import HydraClient, parse_bookmark
+from .ingest import OnDemandIngestor
 from .parquet_reader import iter_documents
 from .parsers import normalise_content
 
@@ -27,7 +28,14 @@ WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 app = FastAPI(title="TraceGraph", version="0.1.0")
 
-_state: dict = {"client": None, "run_id": None, "bodies": {}}
+_state: dict = {"client": None, "run_id": None, "bodies": {}, "ingestor": None}
+
+
+def ingestor() -> OnDemandIngestor:
+    """Enriches retrieved documents so any question over the corpus can be asked."""
+    if _state["ingestor"] is None:
+        _state["ingestor"] = OnDemandIngestor(client(), run_id())
+    return _state["ingestor"]
 
 
 def client() -> HydraClient:
@@ -116,7 +124,7 @@ def ask(request: AskRequest) -> dict:
     question = request.question.strip()
     if not question:
         raise HTTPException(400, "question is empty")
-    controller = AnswerController(client(), run_id())
+    controller = AnswerController(client(), run_id(), ingestor=ingestor())
     result = controller.answer(question, bodies=bodies())
     payload = result.to_contract()
     payload["rejected_citations"] = result.rejected_citations
