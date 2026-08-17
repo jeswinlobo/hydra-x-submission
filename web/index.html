@@ -281,10 +281,19 @@ async function renderResolution() {
   // back from `algo.SPpaths` as a whole path, so what this shows and what the
   // graph holds cannot drift apart. Absent when the identity has no recorded
   // participation to path through, and shown as absent rather than invented.
-  const path = e => e.path
-    ? `<div class="pathline">${esc(e.path.procedure)} → ${esc(e.path.channel)}
-       <span class="muted">${e.path.hops} hop(s), returned by the engine</span></div>`
-    : "";
+  // The engine's own path, element by element, rather than a summary of it —
+  // otherwise the panel is showing this page's description of a traversal
+  // instead of the traversal. `hops` counts relationships, not list elements:
+  // a one-hop walk comes back as three elements and must not read as three hops.
+  const path = e => {
+    if (!e.path || !e.path.steps || !e.path.steps.length) return "";
+    const rendered = e.path.steps.map(s => s.kind === "relationship"
+      ? `<span class="muted">—${esc(s.label)}→</span>`
+      : `<strong>${esc(s.label)}</strong>`).join(" ");
+    return `<div class="pathline">${rendered}
+       <span class="muted">· ${esc(e.path.procedure)}, ${e.path.hops} hop${
+         e.path.hops === 1 ? "" : "s"}</span></div>`;
+  };
   const resolved = d.resolved.map(e => `
     <tr><td><strong>${esc(e.name)}</strong><div class="muted" style="font-size:11px">
       ${e.surfaces.length} distinct surfaces</div>${path(e)}</td>

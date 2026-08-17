@@ -312,20 +312,38 @@ def _attach_paths(c: HydraClient, entities: list[dict]) -> None:
         except Exception:  # noqa: BLE001 - a missing path must not fail the panel
             continue
         if path:
+            steps = _path_steps(path)
             entity["path"] = {
                 "channel": channels[0]["name"],
                 "procedure": "algo.SPpaths",
-                "hops": _path_hops(path),
+                # Relationships traversed, not elements returned. The engine
+                # hands back a flat alternating list — node, type, node — so a
+                # single participation edge arrives as three elements, and
+                # reporting that as "3 hops" overstates a one-hop walk by three.
+                "hops": max((len(steps) - 1) // 2, 0),
+                # The path itself, so the panel renders what the engine
+                # returned rather than a summary of it.
+                "steps": steps,
             }
 
 
-def _path_hops(path) -> int:
-    """Length of an engine-returned path, however the driver hands it back."""
-    for attr in ("relationships", "segments"):
-        value = getattr(path, attr, None)
-        if value is not None:
-            return len(value)
-    return len(path) if isinstance(path, (list, tuple)) else 1
+def _path_steps(path) -> list[dict]:
+    """Flatten an engine path into renderable steps, in order.
+
+    `algo.SPpaths` yields `[{node props}, 'REL_TYPE', {node props}, …]`. Nodes
+    arrive as their property maps rather than as typed objects, so the label has
+    to come from whichever naming property is present.
+    """
+    steps: list[dict] = []
+    for index, element in enumerate(path or []):
+        if isinstance(element, str):
+            steps.append({"kind": "relationship", "label": element})
+        elif isinstance(element, dict):
+            label = element.get("name") or element.get("key") or element.get("dsid")
+            steps.append({"kind": "node", "label": str(label or f"node {index}")})
+        else:
+            steps.append({"kind": "node", "label": str(element)})
+    return steps
 
 
 @app.get("/api/conflicts")

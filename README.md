@@ -68,12 +68,16 @@ MATCH (e:Entity {id: $eid})-[:PARTICIPATED_IN]->(c:Channel {id: $cid})
 RETURN count(*) AS n
 ```
 
-On the loaded slice this decided **766 surfaces** that string matching cannot —
-`alex` resolved to Alex Chen over 47 competitors, at 0.95 confidence. Re-check
-with `scripts/35_verify_gate.py`, which reads the count back out of the graph.
+On the loaded slice this decided **766 mention occurrences**, spanning **24
+distinct ambiguous surfaces** — `alex` resolved to Alex Chen over 47 competitors,
+at 0.95 confidence. The two numbers are far apart on purpose: bare first names
+are few but they recur constantly, so a handful of genuinely ambiguous strings
+accounts for most of the volume. `scripts/35_verify_gate.py` reports both,
+straight out of the graph.
+
 Where the graph does not separate the candidates the mention stays unresolved
-with its candidate set recorded — 1,672 do — because a wrong merge is worse than
-an honest "cannot tell".
+with its candidate set recorded — **1,672 mentions across 70 surfaces** — because
+a wrong merge is worse than an honest "cannot tell".
 
 **Resolution is judged in both directions, so it refuses in both.** Splitting one
 person into many is the obvious failure; fusing two people into one is the
@@ -89,7 +93,12 @@ merge — the identities must also share an organisational root:
 Getting that wrong is not hypothetical. An earlier rule merged on name alone and
 put 76 identities across unrelated companies, collecting 366 mentions between
 them — Elena Rossi at cardiotech.com had absorbed Elena Rossi at microsoft.com,
-and a `procurement@` role address had been folded into a person.
+and a `procurement@` role address had been folded into a person. Those 366 were
+*attached to a conflated identity*, which is not the same as 366 individually
+wrong answers: a mention of the cardiotech Elena still landed on an entity that
+was partly her. It is the exposure, not a proven error rate, and the distinction
+matters because overstating it would be the same failure the merge rule is
+guarding against.
 `scripts/37_rebuild_resolution.py` re-decides every identity in the graph and
 **deletes** the edges the old rule produced, which the engine permits only
 through a form documented in `docs/engine-notes.md`. The graph now holds **zero**
@@ -106,13 +115,18 @@ Document -[:ASSERTS]-> Claim -[:SUPPORTED_BY]-> EvidenceSpan
 **Conflict topology.** Contested facts are `CONFLICTS_WITH` edges between claims,
 so the answer path finds them by traversal rather than by recomputation.
 
-`algo.SPpaths` returns the whole path behind an identity decision rather than a
-sentence this application composed about one, so the explanation and the graph
-cannot drift apart; the resolution panel renders it, labelled with the procedure
-that produced it. `algo.SSpaths` and `algo.MSpaths` are pinned by contract tests
-(`tests/test_hydra_contract.py`) but are not on the answer path. Every answer carries
-the engine's own `read_epoch` and bookmark, so the consistency position that
-produced it is visible alongside it.
+`algo.SPpaths` returns the path connecting a resolved identity to a channel it
+participates in, and the panel renders the elements the engine returned rather
+than a sentence composed about them — so the explanation and the graph cannot
+drift apart. Be precise about its size: the engine hands back a flat alternating
+list, so a single participation edge arrives as three elements and is **one
+hop**, shown as one. The multi-hop reasoning is in the scoring that precedes it —
+a two-hop co-occurrence walk and a one-hop participation check per candidate —
+not in the rendered path. `algo.SSpaths` and `algo.MSpaths` are pinned by contract
+tests (`tests/test_hydra_contract.py`) but are not on the answer path.
+
+Every answer carries the engine's own `read_epoch` and bookmark, so the
+consistency position that produced it is visible alongside it.
 
 **Without HydraDB** this degrades to a document retriever with no explainable
 identity decisions, no traversable claim lineage, and no conflict graph.
@@ -215,10 +229,13 @@ how much evidence there is but whether the right document was retrieved, and
 expanding from the wrong seed reaches the wrong neighbours. It was removed
 rather than shipped as an impressive-sounding path nothing takes.
 
-Where the graph *does* do multi-hop work is identity: 666 surfaces resolved by
-traversal over stored structure, and `algo.SPpaths` returning the path behind a
-decision. That is a real traversal answer to a question an index cannot answer;
-retrieval expansion was not.
+Where the graph *does* do multi-hop work is identity: 766 mention occurrences
+resolved by traversal over stored structure, scored by a two-hop co-occurrence
+walk and a one-hop participation check. `algo.SPpaths` returns the path behind a
+participation decision, and the panel renders the path the engine returned rather
+than a summary of it — currently a single `PARTICIPATED_IN` edge, reported as the
+one hop it is. That is a real traversal answer to a question an index cannot
+answer; retrieval expansion was not.
 
 **No graph-vs-no-graph ablation was run.** PLAN.md called for four variants —
 lexical only, hybrid, hybrid plus graph structure, full TraceGraph — and only
@@ -262,7 +279,7 @@ round-trips a real query first, because a port is not proof.
 ## Verifying the claims above
 
 ```bash
-uv run pytest                             # 138 tests, 20 against the live engine
+uv run pytest                             # 146 tests, 20 against the live engine
 uv run python scripts/35_verify_gate.py   # 11 checks, read back from the graph
 uv run python scripts/36_repair_graph.py  # audit identities and undecided mentions
 uv run python scripts/37_rebuild_resolution.py  # re-decide every identity, report drift

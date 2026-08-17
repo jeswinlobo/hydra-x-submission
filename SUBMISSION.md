@@ -72,11 +72,12 @@ three capabilities disappear entirely without it.
 graph first — who speaks in which channel, which mention sits in which document
 — and ambiguous surfaces are then scored by traversals over that structure:
 co-occurrence in the same document at two hops, participation in the same
-channel at one. On the loaded slice this decided **766 surfaces** that string
-matching cannot, including `alex` → Alex Chen over 47 competing candidates at
-0.95 confidence. Where the graph does not separate candidates, the mention stays
-unresolved with its candidate set recorded as `CANDIDATE_FOR` edges — 1,672 of
-them keep a competing set rather than being guessed at.
+channel at one. On the loaded slice this decided **766 mention occurrences
+across 24 distinct ambiguous surfaces**, including `alex` → Alex Chen over 47
+competing candidates at 0.95 confidence. Where the graph does not separate
+candidates the mention stays unresolved with its candidate set recorded as
+`CANDIDATE_FOR` edges — 1,672 mentions across 70 surfaces keep a competing set
+rather than being guessed at.
 
 Merging is equally a refusal. Two people sharing a full name are folded together
 only when they also share an organisational root, so Grace O'Connor's fourteen
@@ -91,8 +92,8 @@ produced.
 by traversal rather than recomputation.
 
 **3. Native path procedures and real consistency evidence.** `algo.SPpaths`
-returns the whole path behind an identity decision, which is what the
-interface renders. Every answer carries the engine's own `read_epoch` and
+returns the path behind a participation decision, and the resolution panel
+renders the path the engine returned rather than a description of it. Every answer carries the engine's own `read_epoch` and
 bookmark — read off the response, never composed.
 
 The engine also shaped the design rather than merely hosting it. A bare
@@ -125,7 +126,7 @@ batch, **62 (12%) cited evidence not appearing verbatim in the source and were
 rejected**.
 
 Ingestion runs at ~19,000 nodes/second; registering 511,958 document ids produced
-zero collisions. 138 tests pass, 20 of them against the live engine.
+zero collisions. 146 tests pass, 20 of them against the live engine.
 
 ## Team members and contributions
 

@@ -110,13 +110,19 @@ def main() -> int:
                "\n".join(f"{row['method']}: {row['n']}" for row in methods))
 
         # --- the decision was made by the graph ------------------------------
+        # Occurrences and distinct surfaces are reported separately, because
+        # they are wildly different numbers and the smaller one is the honest
+        # measure of how much ambiguity was actually adjudicated: a handful of
+        # bare first names accounts for most of the volume.
         graph_backed = client.bolt_read(
             "MATCH (m:Mention)-[r:RESOLVES_TO]->(e:Entity) "
             "WHERE r.run_id = $r AND r.method = 'graph_evidence' "
-            "RETURN count(*) AS n", {"r": run_id})
-        n_graph = graph_backed[0]["n"] if graph_backed else 0
+            "RETURN m.normalised AS surface LIMIT 20000", {"r": run_id})
+        n_graph = len(graph_backed)
+        n_graph_surfaces = len({row["surface"] for row in graph_backed})
         record("resolutions decided by graph evidence", n_graph > 0,
-               f"{n_graph} surfaces resolved by traversal over stored structure")
+               f"{n_graph} mention occurrences resolved by traversal over stored "
+               f"structure, across {n_graph_surfaces} distinct surfaces")
 
         participation = client.bolt_read(
             "MATCH (e:Entity)-[r:PARTICIPATED_IN]->(c:Channel) WHERE r.run_id = $r "
@@ -143,10 +149,13 @@ def main() -> int:
 
         unresolved_with_reason = client.bolt_read(
             "MATCH (m:Mention) WHERE m.run_id = $r AND m.status = 'unresolved' "
-            "AND m.candidates > 1 RETURN count(*) AS n", {"r": run_id})
-        record("unresolved mentions keep their candidate count",
-               (unresolved_with_reason[0]["n"] if unresolved_with_reason else 0) > 0,
-               f"{unresolved_with_reason[0]['n']} kept a competing candidate set")
+            "AND m.candidates > 1 RETURN m.normalised AS surface LIMIT 20000",
+            {"r": run_id})
+        n_amb = len(unresolved_with_reason)
+        n_amb_surfaces = len({row["surface"] for row in unresolved_with_reason})
+        record("unresolved mentions keep their candidate count", n_amb > 0,
+               f"{n_amb} mentions kept a competing candidate set, across "
+               f"{n_amb_surfaces} distinct surfaces")
 
         # --- bounded evidence path -------------------------------------------
         anchor = client.bolt_read(
