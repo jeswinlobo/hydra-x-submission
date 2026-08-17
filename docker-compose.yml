@@ -15,9 +15,11 @@ services:
     # Without this the node cannot write its store and fails on first storage use.
     user: "${TRACEGRAPH_UID}:${TRACEGRAPH_GID}"
     ports:
-      - "7687:7687"   # Bolt, Neo4j-driver compatible
-      - "8443:8443"   # HTTP JSON/NDJSON query API
-      - "9090:9090"   # admin: readiness and Prometheus metrics
+      # Loopback only. This node is a local dependency of the app, not a
+      # network service, and it runs with GRAPH_ALLOW_PLAINTEXT.
+      - "127.0.0.1:7687:7687"   # Bolt, Neo4j-driver compatible
+      - "127.0.0.1:8443:8443"   # HTTP JSON/NDJSON query API
+      - "127.0.0.1:9090:9090"   # admin: readiness and Prometheus metrics
     volumes:
       - ./hydradb-data:/data
     environment:

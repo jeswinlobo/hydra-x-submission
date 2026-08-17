@@ -31,7 +31,16 @@ grep -q '^ANTHROPIC_API_KEY=.\+' .env || \
   fail "ANTHROPIC_API_KEY is empty in .env; extraction and synthesis need it"
 
 CORPUS="dataset/EnterpriseRAG-Bench/data/documents/test.parquet"
-[[ -f "$CORPUS" ]] || fail "corpus not found at $CORPUS"
+QUESTIONS="dataset/EnterpriseRAG-Bench/data/questions/test.parquet"
+[[ -f "$CORPUS" ]] || fail "corpus not found at $CORPUS
+  get it from https://huggingface.co/datasets/onyx-dot-app/EnterpriseRAG-Bench"
+[[ -f "$QUESTIONS" ]] || fail "questions not found at $QUESTIONS (needed by scripts/75_retrieval_eval.py)"
+
+# ~7GB: the 1.4GB corpus, a 1.4GB re-chunked copy, and a 2.5GB lexical index.
+FREE_GB=$(df -BG --output=avail . | tail -1 | tr -dc '0-9')
+if [[ -n "$FREE_GB" && "$FREE_GB" -lt 7 ]]; then
+  fail "only ${FREE_GB}GB free; this needs about 7GB"
+fi
 echo "  ok: docker, uv, .env, corpus"
 
 step "installing dependencies"
@@ -89,19 +98,51 @@ fi
 
 # --- proof -------------------------------------------------------------------
 
+# Verification reports; it does not abort. Under `set -e` with `pipefail` a
+# single failing test used to exit here, so ten minutes of successful build
+# ended at one line of `tail -1` with no next step — on a system that would
+# have served perfectly well. A failure is worth seeing in full and worth
+# continuing past.
 step "verifying"
-uv run pytest -q -m "not live" 2>&1 | tail -1
-[[ $FAST -eq 0 ]] && uv run python scripts/35_verify_gate.py 2>&1 | tail -1
+VERIFY_FAILED=0
 
+if ! pytest_out=$(uv run pytest -q -m "not live" 2>&1); then
+  VERIFY_FAILED=1
+  printf '%s\n' "$pytest_out" | tail -25
+else
+  printf '%s\n' "$pytest_out" | tail -1
+fi
+
+if [[ $FAST -eq 0 ]]; then
+  if ! gate_out=$(uv run python scripts/35_verify_gate.py 2>&1); then
+    VERIFY_FAILED=1
+    printf '%s\n' "$gate_out" | tail -20
+  else
+    printf '%s\n' "$gate_out" | tail -1
+  fi
+fi
+
+echo
+echo "Ready."
+echo
+echo "  ./scripts/60_serve.sh          Ask & Inspect at http://127.0.0.1:8000"
+echo '  uv run python scripts/50_ask.py "your question"'
+if [[ $FAST -eq 0 ]]; then
+  # Needs an ingested run, which --fast deliberately skips.
+  echo "  uv run python scripts/80_demo_check.py --rounds 10"
+fi
 cat <<'EOF'
-
-Ready.
-
-  ./scripts/60_serve.sh          Ask & Inspect at http://127.0.0.1:8000
-  uv run python scripts/50_ask.py "your question"
-  uv run python scripts/80_demo_check.py --rounds 10
 
 The first question about a document takes 25-40 seconds, because the document is
 parsed and extracted while the question is answered. Asking about it again is
 fast.
 EOF
+
+if [[ $VERIFY_FAILED -eq 1 ]]; then
+  echo
+  echo "Note: verification above reported a failure. The system is built and will"
+  echo "serve, but something it checks is not holding. Re-run to see it again:"
+  echo "  uv run pytest -q -m 'not live'"
+  echo "  uv run python scripts/35_verify_gate.py"
+  echo "  uv run python scripts/36_repair_graph.py    # if the gate names pending mentions"
+fi

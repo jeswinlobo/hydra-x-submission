@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from . import config
 from .conflicts import ClaimRecord, detect_conflicts
 from .controller import AnswerController
+from .graph_resolve import GraphEvidence
 from .hydra_client import HydraClient, parse_bookmark
 from .ingest import OnDemandIngestor
 
@@ -263,7 +264,55 @@ def resolution(limit: int = 12) -> dict:
         "m.candidates AS candidates, m.reason AS reason "
         "ORDER BY m.candidates DESC LIMIT 12", {"r": run_id()})
 
-    return {"resolved": multi[:limit], "unresolved": unresolved}
+    shown = multi[:limit]
+    _attach_paths(c, shown)
+    return {"resolved": shown, "unresolved": unresolved}
+
+
+# How many entities get a path drawn. Each is one `algo.SPpaths` call, so this
+# is bounded rather than run over everything on screen.
+PATH_BUDGET = 4
+
+
+def _attach_paths(c: HydraClient, entities: list[dict]) -> None:
+    """Ask the engine for the path connecting a person to where they were seen.
+
+    This is a native path procedure returning a whole path, rather than the
+    application walking edges and composing a sentence about them — so what the
+    panel shows and what the graph holds cannot drift apart.
+
+    A missing path is left absent rather than faked. Not every resolved identity
+    has recorded participation, and an entity resolved by its address alone
+    never needed one.
+    """
+    evidence = GraphEvidence(c, run_id())
+    for entity in entities[:PATH_BUDGET]:
+        channels = c.bolt_read(
+            "MATCH (e:Entity)-[p:PARTICIPATED_IN]->(ch:Channel) "
+            "WHERE e.id = $eid AND p.run_id = $r "
+            "RETURN ch.id AS cid, ch.name AS name LIMIT 1",
+            {"eid": entity["entity_id"], "r": run_id()})
+        if not channels:
+            continue
+        try:
+            path = evidence.evidence_path(entity["entity_id"], channels[0]["cid"])
+        except Exception:  # noqa: BLE001 - a missing path must not fail the panel
+            continue
+        if path:
+            entity["path"] = {
+                "channel": channels[0]["name"],
+                "procedure": "algo.SPpaths",
+                "hops": _path_hops(path),
+            }
+
+
+def _path_hops(path) -> int:
+    """Length of an engine-returned path, however the driver hands it back."""
+    for attr in ("relationships", "segments"):
+        value = getattr(path, attr, None)
+        if value is not None:
+            return len(value)
+    return len(path) if isinstance(path, (list, tuple)) else 1
 
 
 @app.get("/api/conflicts")

@@ -72,7 +72,7 @@ three capabilities disappear entirely without it.
 graph first — who speaks in which channel, which mention sits in which document
 — and ambiguous surfaces are then scored by traversals over that structure:
 co-occurrence in the same document at two hops, participation in the same
-channel at one. On the loaded slice this decided **589 surfaces across 4,869
+channel at one. On the loaded slice this decided **592 surfaces
 queries to the engine**, including `alex` → Alex Chen over 42 competing
 candidates. Where the graph does not separate candidates, the mention stays
 unresolved with its candidate set recorded as `CANDIDATE_FOR` edges.
@@ -82,8 +82,8 @@ unresolved with its candidate set recorded as `CANDIDATE_FOR` edges.
 `CONFLICTS_WITH` between contested claims, so the answer path finds contradictions
 by traversal rather than recomputation.
 
-**3. Native path procedures and real consistency evidence.** `algo.SPpaths`,
-`algo.SSpaths`, and `algo.MSpaths` return whole evidence paths, which is what the
+**3. Native path procedures and real consistency evidence.** `algo.SPpaths`
+returns the whole path behind an identity decision, which is what the
 interface renders. Every answer carries the engine's own `read_epoch` and
 bookmark — read off the response, never composed.
 
@@ -117,7 +117,7 @@ batch, **62 (12%) cited evidence not appearing verbatim in the source and were
 rejected**.
 
 Ingestion runs at ~20,000 nodes/second; registering 511,958 document ids produced
-zero collisions. 103 tests pass, 18 of them against the live engine.
+zero collisions. 136 tests pass, 18 of them against the live engine.
 
 ## Team members and contributions
 
@@ -142,7 +142,11 @@ Every item is a listed disqualification reason. Tick them off in order.
 - [x] Open-source licence in the repository — MIT, `LICENSE`
 - [x] Third-party notices — `NOTICE.md` (HydraDB AGPL-3.0, unmodified, over the network)
 - [x] README explains the project clearly
-- [x] Setup instructions verified from a fresh clone
+- [ ] **Setup instructions verified from a fresh clone** — every command and flag
+      in the Quickstart has been checked to exist and parse, and the corpus
+      download link is now stated (it was missing, so the instructions could not
+      have been followed end to end). The full clone-to-serve run has not been
+      done on a clean machine; do that before ticking this.
 - [x] HydraDB usage clearly explained
 - [x] No secrets, datasets, database state, or reference clones committed
 - [x] No participant-authored commits before 12 August 2026
@@ -162,7 +166,7 @@ Every item is a listed disqualification reason. Tick them off in order.
 | 1:00–1:30 | **Demo.** Resolution panel: `alex` against 43 candidates, decided by shared participation — show the query and the graph evidence. |
 | 1:30–1:55 | **Demo.** Conflict panel: one person, several job titles, trust breakdown, recency-as-supersession. |
 | 1:55–2:10 | **Demo.** Ask something the corpus does not contain; explicit abstention, no citations. |
-| 2:10–2:55 | **HydraDB.** Ontology, `algo.MSpaths`, bounded hops, the real `read_epoch` in the trace, and one sentence on what disappears without it. |
+| 2:10–2:55 | **HydraDB.** Ontology, `algo.SPpaths` in the resolution panel, bounded hops, the real `read_epoch` in the trace, and one sentence on what disappears without it. |
 
 Record only after ten consecutive clean demo runs. Curated questions are fine;
 hard-coded answers are not.

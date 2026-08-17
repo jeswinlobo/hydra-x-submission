@@ -9,7 +9,15 @@
 /.hydradb/
 /indexes/
 /checkpoints/
-/artifacts/
+# Contents rather than the directory itself: git cannot re-include a file inside
+# an excluded directory, and the recorded results the README quotes have to
+# reach the clone — otherwise a judge gets no evidence file for any number in
+# the Results section.
+/artifacts/*
+!/artifacts/retrieval_summary.json
+# Raw dataset excerpts dumped for parser design. Never staged: committed
+# fixtures are small synthetic documents, not corpus text.
+/inspect/
 /models/
 /logs/
 

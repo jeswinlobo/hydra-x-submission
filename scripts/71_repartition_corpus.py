@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import statistics
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -35,6 +36,10 @@ from tracegraph import config  # noqa: E402
 from tracegraph.parquet_reader import RowLocator, repartition  # noqa: E402
 
 
+class NotIndexed(RuntimeError):
+    """There is no row map here to measure."""
+
+
 def measure(parquet_path: Path, db_path: Path, samples: int = 5) -> float:
     """Median seconds to fetch one document. The number this script exists for."""
     locator = RowLocator(parquet_path, db_path)
@@ -42,6 +47,10 @@ def measure(parquet_path: Path, db_path: Path, samples: int = 5) -> float:
         rows = locator._conn.execute(
             "SELECT doc_id FROM doc_location ORDER BY doc_id LIMIT ?",
             (samples,)).fetchall()
+        if not rows:
+            # `statistics.median([])` raises, which surfaced as a bare traceback
+            # from a flag documented as read-only.
+            raise NotIndexed(f"no row map in {db_path}")
         timings = []
         for (doc_id,) in rows:
             started = time.perf_counter()
@@ -67,15 +76,27 @@ def main() -> int:
         return 1
 
     if args.check:
-        median = measure(config.locator_parquet(), config.locator_db())
+        try:
+            median = measure(config.LOCATOR_PARQUET, config.LOCATOR_DB)
+        except (NotIndexed, FileNotFoundError, OSError) as exc:
+            print(f"nothing to measure: {exc}\n"
+                  "run this script without --check to build the row map first",
+                  file=sys.stderr)
+            return 1
         print(f"fetch latency: {median * 1000:.0f}ms median "
-              f"({config.locator_parquet().name})")
+              f"({config.LOCATOR_PARQUET.name})")
         return 0
 
+    # The baseline is measured against the corpus as shipped, indexed into a
+    # throwaway db, so it does not depend on — or write to — the id registry.
     before = None
-    if config.REGISTRY_DB.exists():
+    if not config.LOCATOR_PARQUET.exists():
         try:
-            before = measure(config.DOCUMENTS_PARQUET, config.REGISTRY_DB, samples=3)
+            with tempfile.TemporaryDirectory() as tmp:
+                probe = RowLocator.build(source, Path(tmp) / "baseline.sqlite3",
+                                         batch_log_every=10_000_000)
+                probe.close()
+                before = measure(source, Path(tmp) / "baseline.sqlite3", samples=3)
             print(f"before: {before * 1000:.0f}ms median fetch "
                   f"({pq.ParquetFile(source).num_row_groups} row group(s))")
         except Exception as exc:  # noqa: BLE001 - a baseline is nice, not required
@@ -83,6 +104,14 @@ def main() -> int:
 
     config.INDEX_DIR.mkdir(parents=True, exist_ok=True)
     if config.LOCATOR_PARQUET.exists():
+        existing = pq.ParquetFile(config.LOCATOR_PARQUET)
+        actual = existing.metadata.row_group(0).num_rows if existing.num_row_groups else 0
+        if args.rows_per_group != actual:
+            print(f"a re-chunked copy already exists at {actual} rows per row "
+                  f"group, not {args.rows_per_group}. Delete "
+                  f"{config.LOCATOR_PARQUET} and {config.LOCATOR_DB} to rebuild "
+                  "at a different size.", file=sys.stderr)
+            return 1
         print(f"re-chunked copy already at {config.LOCATOR_PARQUET}")
     else:
         started = time.perf_counter()

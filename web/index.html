@@ -75,6 +75,8 @@
      what the system rejected, and it must not read as though it backed an
      answer. A dashed rule rather than the solid claim rule says "considered". */
   .examined .claim { border-left: 2px dashed var(--line); opacity: 0.62; }
+  .pathline { font-size: 11px; color: var(--accent); margin-top: 3px;
+              font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .quote { color: var(--muted); font-size: 12.5px; font-style: italic;
            margin-top: 4px; }
   .tabs { display: flex; gap: 4px; padding: 8px 10px 0; border-bottom: 1px solid var(--line); }
@@ -275,9 +277,17 @@ function renderGraph() {
 
 async function renderResolution() {
   const d = await get("/api/resolution?limit=6");
+  // The path is the engine's own answer, not a sentence composed here: it comes
+  // back from `algo.SPpaths` as a whole path, so what this shows and what the
+  // graph holds cannot drift apart. Absent when the identity has no recorded
+  // participation to path through, and shown as absent rather than invented.
+  const path = e => e.path
+    ? `<div class="pathline">${esc(e.path.procedure)} → ${esc(e.path.channel)}
+       <span class="muted">${e.path.hops} hop(s), returned by the engine</span></div>`
+    : "";
   const resolved = d.resolved.map(e => `
     <tr><td><strong>${esc(e.name)}</strong><div class="muted" style="font-size:11px">
-      ${e.surfaces.length} distinct surfaces</div></td>
+      ${e.surfaces.length} distinct surfaces</div>${path(e)}</td>
       <td>${e.surfaces.slice(0, 4).map(s =>
         `<div><span class="cite">${esc(s.surface.slice(0, 30))}</span>
          <span class="muted"> ${esc(s.method)} ${s.confidence}</span></div>`).join("")}</td></tr>`).join("");

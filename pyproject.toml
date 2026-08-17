@@ -17,6 +17,9 @@ dependencies = [
     # Ask & Inspect serves the answer contract and the evidence graph the
     # judges look at; the UI is a single static page this app hosts.
     "fastapi>=0.115,<1",
+    # Imported directly by tracegraph.api for the request model. It arrives
+    # with fastapi today, which is not a reason to leave it undeclared.
+    "pydantic>=2,<3",
     "uvicorn>=0.30,<1",
 ]
 

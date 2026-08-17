@@ -30,15 +30,21 @@ The corpus and its 500 evaluation questions. Not redistributed: `dataset/` and
 `external/` are gitignored, and the evaluation reads them from a local checkout.
 
 The benchmark's answer key — `gold_answer`, `answer_facts`, `expected_doc_ids` —
-is read only by evaluation code, never by ingestion or answering. The firewall
-is a column whitelist in `parquet_reader.read_questions`, the single function
-permitted to open the questions file.
+is read only by evaluation code, never by ingestion or answering. The questions
+file has exactly two readers, and neither can do the other's job:
+`parquet_reader.read_questions` serves question text and refuses every gold
+column outright, and `parquet_reader.read_answer_key` returns `question_id` and
+`expected_doc_ids` and nothing else — no question text, so a caller holding the
+key cannot also hold the thing being measured. `scripts/75_retrieval_eval.py` is
+the only caller of the second, and it passes only `question` to the retriever.
 
 The benchmark's generator also ships an identity oracle mapping every person to
 their email, title, and manager. Resolving aliases against it would answer the
 exact question this project exists to solve, so it is quarantined in the
-gitignored `eval-oracle/` and used only to score entity resolution after the
-fact. See `docs/refs.lock.md`.
+gitignored `eval-oracle/`. Nothing in `tracegraph/` or `scripts/` reads it —
+`scripts/00_fetch_refs.sh` only moves it into quarantine — so it is held for
+scoring that has not yet been written rather than scoring already done. See
+`docs/refs.lock.md`.
 
 ## Salesforce HERB — CC-BY-NC-4.0
 

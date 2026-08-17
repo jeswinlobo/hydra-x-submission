@@ -42,10 +42,14 @@ def main() -> int:
         client.verify()
         rows = client.bolt_read(
             "MATCH (d:Document) RETURN d.run_id AS r ORDER BY r DESC LIMIT 1")
+        # An empty graph is a starting state, matching 50_ask.py and the API:
+        # documents are enriched when questions reach them, so `bootstrap.sh
+        # --fast` can still be checked. It refused outright before, which made
+        # the command bootstrap prints on that path exit 1 immediately.
+        run_id = rows[0]["r"] if rows else "ondemand"
         if not rows:
-            print("no ingested run; run scripts/30_load_slice.py", file=sys.stderr)
-            return 1
-        run_id = rows[0]["r"]
+            print("no preloaded run; answering on demand over the whole corpus\n",
+                  file=sys.stderr)
         ingestor = OnDemandIngestor(client, run_id)
 
         for round_no in range(1, args.rounds + 1):

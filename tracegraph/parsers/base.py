@@ -193,6 +193,33 @@ def email_domain(email: str) -> str:
     return email.split("@", 1)[1].casefold() if "@" in email else ""
 
 
+# Suffixes that carry no organisational meaning. `redwood-inference.com` and
+# `redwood.ai` are the same company; `mail.redwood.com` and `redwood.com` are
+# too. Kept deliberately short — this is for recognising one organisation
+# spelled several ways, not for classifying domains.
+_DOMAIN_NOISE = frozenset({
+    "com", "net", "org", "io", "ai", "co", "dev", "app", "cloud", "inc",
+    "corp", "group", "mail", "email", "www", "us", "uk", "eu",
+})
+
+
+def organisation_root(domain: str) -> str:
+    """The organisation a mail domain belongs to, or "" if it has none.
+
+    Grace O'Connor's addresses live at redwood.com, redwood.ai and
+    redwood-inference.com — three domain strings, one employer. Reducing each to
+    `redwood` is what lets them be recognised as one person's, while
+    mediloop.com and procureco.com reduce to different roots and stay apart.
+
+    The rule is the first meaningful label: split on dots and hyphens, drop the
+    public suffixes and generic words above, and take what is left. Two people
+    who merely share a name are not merged on the strength of the name alone.
+    """
+    parts = [p for p in re.split(r"[.\-]+", domain.casefold()) if p]
+    meaningful = [p for p in parts if p not in _DOMAIN_NOISE and len(p) > 1]
+    return meaningful[0] if meaningful else ""
+
+
 def name_tokens(raw: str) -> set[str]:
     """Alphabetic tokens of a name or email local part, for alias bridging.
 

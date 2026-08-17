@@ -42,6 +42,7 @@ from .parsers.base import (
     email_local_part,
     name_tokens,
     normalise_name,
+    organisation_root,
 )
 
 # Resolution methods, recorded on every RESOLVES_TO edge so a decision can be
@@ -62,6 +63,44 @@ CONFIDENCE = {
     METHOD_GRAPH_EVIDENCE: 0.80,
     METHOD_UNRESOLVED: 0.0,
 }
+
+
+# Two organisation roots that differ only by a trailing word are one company:
+# `redwood.ai` and `redwoodinference.com` both belong to Redwood Inference, and
+# the hyphenated `redwood-inference.com` already reduces to `redwood`. Splitting
+# those apart would undo the merge this module exists to perform — it costs 38
+# genuine pairs on this corpus. The prefix must be long enough to mean
+# something, so a four-letter company name cannot swallow a longer unrelated one.
+_ROOT_PREFIX_MIN = 5
+
+
+def _same_organisation(a: str, b: str) -> bool:
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    shorter, longer = sorted((a, b), key=len)
+    return len(shorter) >= _ROOT_PREFIX_MIN and longer.startswith(shorter)
+
+
+def pack(values: Iterable[str], cap: int) -> str:
+    """Join values with `;`, dropping whole values rather than cutting one.
+
+    A plain `";".join(...)[:cap]` severs the last address mid-string, and
+    `grace_oconnor@redwood.ai` became the entry `grace_oco` in the graph. That
+    only mattered once entities were read back — a fragment then looks like a
+    real address, mints a junk name token, and widens every candidate match for
+    that person. Truncating at a separator keeps every surviving entry true.
+    """
+    packed: list[str] = []
+    length = 0
+    for value in values:
+        extra = len(value) + (1 if packed else 0)
+        if length + extra > cap:
+            break
+        packed.append(value)
+        length += extra
+    return ";".join(packed)
 
 
 @dataclass
@@ -216,7 +255,7 @@ class Resolver:
         person.channels.update(c for c in channels if c)
         self._by_token_set[frozenset(person.tokens)].add(key)
 
-    def merge_same_person(self) -> int:
+    def merge_same_person(self, protected: Iterable[str] = ()) -> int:
         """Fold alternate addresses for one person into a single identity.
 
         The corpus gives the same person several addresses — Grace O'Connor
@@ -228,7 +267,25 @@ class Resolver:
         display name is exactly the ambiguous case this module exists to be
         careful about: merging every `sam` would be the false merge that
         entity resolution is judged on.
+
+        A shared full name is not on its own enough, because two people can have
+        one. What made Grace's addresses hers was that they are all the same
+        organisation spelled differently, so the merge also requires an
+        organisational root in common — `redwood` across redwood.com,
+        redwood.ai and redwood-inference.com. Priya Sharma at mediloop.com and
+        Priya Sharma at procureco.com share a name and nothing else, and folding
+        them together is the same false merge as folding every `sam`, only
+        harder to notice.
+
+        `protected` names identities that already exist as vertices in the
+        graph. Those are never popped: a caller resolving one document at a time
+        holds people the graph persisted long ago, and folding one into another
+        here would leave its vertex and every edge pointing at it stranded,
+        while new mentions of its address resolved to somebody else entirely.
+        New people fold into a protected identity, never the reverse, and two
+        protected identities are left alone.
         """
+        protected = set(protected)
         by_name: dict[str, list[str]] = defaultdict(list)
         for key, person in self.people.items():
             tokens = name_tokens(person.display_name)
@@ -240,20 +297,59 @@ class Resolver:
         for keys in by_name.values():
             if len(keys) < 2:
                 continue
-            survivor = self.people[sorted(keys)[0]]
-            for key in sorted(keys)[1:]:
-                other = self.people.pop(key)
-                survivor.emails |= other.emails
-                survivor.domains |= other.domains
-                survivor.channels |= other.channels
-                survivor.documents |= other.documents
-                for email in other.emails:
-                    self._by_email[email] = survivor.key
-                merged += 1
+            for group in self._by_organisation(keys):
+                merged += self._merge_group(group, protected)
 
         self._by_token_set.clear()
         for key, person in self.people.items():
             self._by_token_set[frozenset(person.tokens)].add(key)
+        return merged
+
+    def _by_organisation(self, keys: Sequence[str]) -> list[list[str]]:
+        """Split same-named people into groups that share an organisation.
+
+        Grouping is by the union of organisational roots, so a person known at
+        both redwood.com and redwood.ai joins the same group as one known only
+        at redwood-inference.com. Someone sharing no root with anybody stays in
+        a group of one and is therefore never merged.
+        """
+        groups: list[tuple[set[str], list[str]]] = []
+        for key in sorted(keys):
+            roots = {organisation_root(d) for d in self.people[key].domains}
+            roots.discard("")
+            for existing_roots, members in groups:
+                if any(_same_organisation(a, b)
+                       for a in roots for b in existing_roots):
+                    existing_roots |= roots
+                    members.append(key)
+                    break
+            else:
+                groups.append((roots, [key]))
+        return [members for _, members in groups]
+
+    def _merge_group(self, keys: Sequence[str], protected: set[str]) -> int:
+        if len(keys) < 2:
+            return 0
+        anchors = [k for k in keys if k in protected]
+        if len(anchors) > 1:
+            # Both already exist in the graph. Merging them here would strand
+            # one vertex; if they really are one person that is a repair for a
+            # caller holding the whole picture, not for one document.
+            return 0
+
+        survivor = self.people[anchors[0] if anchors else keys[0]]
+        merged = 0
+        for key in keys:
+            if key == survivor.key or key in protected:
+                continue
+            other = self.people.pop(key)
+            survivor.emails |= other.emails
+            survivor.domains |= other.domains
+            survivor.channels |= other.channels
+            survivor.documents |= other.documents
+            for email in other.emails:
+                self._by_email[email] = survivor.key
+            merged += 1
         return merged
 
     def resolve_mention(

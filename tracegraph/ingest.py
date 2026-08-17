@@ -33,7 +33,7 @@ from .loader import upsert_edges, upsert_nodes
 from .parquet_reader import RowLocator
 from .parsers import normalise_content, parse_document
 from .parsers.base import PERSON
-from .resolve import METHOD_GRAPH_EVIDENCE, METHOD_UNRESOLVED, Resolver
+from .resolve import METHOD_GRAPH_EVIDENCE, METHOD_UNRESOLVED, Resolver, pack
 
 DOC = "Document"
 MENTION = "Mention"
@@ -99,7 +99,8 @@ class OnDemandIngestor:
         self.resolve = resolve
         self.max_body = max_body
         self.registry = IdRegistry()
-        self.locator = RowLocator(config.locator_parquet(), config.locator_db())
+        self.locator = RowLocator(config.locator_parquet(), config.locator_db(),
+                                  require_complete=True)
         self._present: set[str] = set()
         self._resolver: Resolver | None = None
         self._adopted: set[str] = set()
@@ -119,11 +120,17 @@ class OnDemandIngestor:
         the person called Sam was established by some other document entirely.
         """
         if self._resolver is None:
-            self._resolver = Resolver()
-            self._adopt_known()
+            # Built into a local and published only once adoption succeeds. It
+            # used to be assigned first, so a single Bolt blip during the first
+            # question left an empty resolver cached for the life of the
+            # process — every bare handle unresolved from then on, silently,
+            # because `_adopt_known` has no other caller.
+            resolver = Resolver()
+            self._adopt_known(resolver)
+            self._resolver = resolver
         return self._resolver
 
-    def _adopt_known(self) -> int:
+    def _adopt_known(self, resolver: Resolver) -> int:
         """Pull entities out of the graph and into the resolver.
 
         Bounded, and deliberately so — this is the candidate pool for one
@@ -140,9 +147,15 @@ class OnDemandIngestor:
             key = row["key"]
             if not key or key in self._adopted:
                 continue
-            self._resolver.adopt(
+            resolver.adopt(
                 key, row["name"] or key,
-                [e for e in (row["emails"] or "").split(";") if e],
+                # `emails` is a truncated join, so its last element may be half
+                # an address. Reading a fragment back as real would mint a
+                # permanent fake address and widen this person's token set;
+                # `grace_oco` got into the graph exactly that way. The key
+                # itself carries the address that named the identity, so
+                # dropping anything without an `@` loses nothing that matters.
+                [e for e in (row["emails"] or "").split(";") if "@" in e],
                 [d for d in (row["domains"] or "").split(";") if d],
             )
             self._adopted.add(key)
@@ -387,7 +400,12 @@ class OnDemandIngestor:
         # an identity that surfaces further down the same document can match.
         resolver.observe(dsid, prepared.source_type, prepared.mentions,
                          channel=channel)
-        resolver.merge_same_person()
+        # Every identity the graph already holds is protected from being merged
+        # away. Without this the per-document merge popped persisted people:
+        # their vertices stayed in the graph with their own mentions while new
+        # mentions of their address resolved to whoever survived the merge — a
+        # different person, at `strong_key_email` confidence 1.0.
+        resolver.merge_same_person(protected=self._adopted)
 
         direct, ambiguous = [], []
         for mention in prepared.mentions:
@@ -414,8 +432,8 @@ class OnDemandIngestor:
             entity_rows.append({
                 "vertex": identity.id, "key": key, "name": person.display_name,
                 "kind": PERSON,
-                "emails": ";".join(sorted(person.emails))[:400],
-                "domains": ";".join(sorted(person.domains))[:200],
+                "emails": pack(sorted(person.emails), 400),
+                "domains": pack(sorted(person.domains), 200),
                 "run_id": self.run_id,
             })
         if entity_rows:

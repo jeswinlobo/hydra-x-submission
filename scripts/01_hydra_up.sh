@@ -24,10 +24,17 @@ export TRACEGRAPH_UID TRACEGRAPH_GID
 # LOCAL_PATH must point at a directory that already exists.
 mkdir -p hydradb-data/store hydradb-data/cache
 
+# Generated, not literal. A token committed to a public repo is not a secret,
+# and this one authenticates a graph the container publishes on a real port.
 if [[ ! -f hydradb-data/auth-token ]]; then
-  printf '%s\n' 'local-development-token-32-bytes' > hydradb-data/auth-token
+  if command -v openssl >/dev/null; then
+    openssl rand -hex 32 > hydradb-data/auth-token
+  else
+    head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > hydradb-data/auth-token
+    printf '\n' >> hydradb-data/auth-token
+  fi
   chmod 600 hydradb-data/auth-token
-  echo "created hydradb-data/auth-token"
+  echo "created hydradb-data/auth-token (random, gitignored)"
 fi
 
 start_with_compose() {
@@ -45,7 +52,7 @@ start_with_docker_run() {
     --restart unless-stopped \
     --user "${TRACEGRAPH_UID}:${TRACEGRAPH_GID}" \
     --memory 6g \
-    -p 7687:7687 -p 8443:8443 -p 9090:9090 \
+    -p 127.0.0.1:7687:7687 -p 127.0.0.1:8443:8443 -p 127.0.0.1:9090:9090 \
     -v "$PWD/hydradb-data:/data" \
     -e CLOUD_PROVIDER=local \
     -e LOCAL_PATH=/data/store \

@@ -51,6 +51,15 @@ DEFAULT_ROW_GROUP_ROWS = 2048
 DOC_ID_COLUMN = "doc_id"
 
 
+class IncompleteRowMap(RuntimeError):
+    """The document row map does not cover every row group of its parquet.
+
+    A partial index is indistinguishable from a finished one by schema or
+    fingerprint, so it has to be caught by counting. Reading through one makes
+    documents vanish rather than error.
+    """
+
+
 class GoldAccessError(RuntimeError):
     """Raised when the questions parquet is asked for something it must not give.
 
@@ -195,6 +204,44 @@ def read_questions(
         yield from batch.to_pylist()
 
 
+# The answer key, behind its own door.
+#
+# `read_questions` cannot serve scoring: `expected_doc_ids` is forbidden there,
+# and rightly so. The evaluation script used to solve that by opening the file
+# itself with an unprojected `.read()`, which pulled `gold_answer` and
+# `answer_facts` into memory alongside — columns it has no use for — and made
+# the "single door" the docs describe untrue.
+#
+# Two doors, then, each narrow and each named for what it is: one that answers
+# questions and can never see gold, one that scores and can see nothing else.
+ANSWER_KEY_COLUMNS = ("question_id", "expected_doc_ids")
+
+
+def read_answer_key(
+    path: Path | str = config.QUESTIONS_PARQUET,
+) -> Iterator[dict]:
+    """Question id and its expected documents. **Scoring only.**
+
+    Never call this from anything that retrieves, ingests, resolves, or
+    answers. It exists so `scripts/75_retrieval_eval.py` can mark its own
+    homework, and it deliberately cannot return the question text — a caller
+    holding both would be one refactor away from feeding the key to the thing
+    being measured.
+    """
+    present = frozenset(question_schema(path))
+    selected = [name for name in ANSWER_KEY_COLUMNS if name in present]
+    if len(selected) != len(ANSWER_KEY_COLUMNS):
+        raise GoldAccessError(
+            f"{path} has no answer key: expected {list(ANSWER_KEY_COLUMNS)}, "
+            f"present {sorted(present)}"
+        )
+    parquet = _open(path)
+    for batch in parquet.iter_batches(
+        batch_size=DEFAULT_BATCH_ROWS, columns=selected, use_threads=False
+    ):
+        yield from batch.to_pylist()
+
+
 # --- Row location -----------------------------------------------------------
 
 _LOCATOR_SCHEMA = """
@@ -239,7 +286,8 @@ class RowLocator:
     file. Run :func:`repartition` first and index the copy.
     """
 
-    def __init__(self, parquet_path: Path | str, db_path: Path | str) -> None:
+    def __init__(self, parquet_path: Path | str, db_path: Path | str, *,
+                 require_complete: bool = False) -> None:
         self.parquet_path = Path(parquet_path)
         self.db_path = Path(db_path)
         self.build_report: BuildReport | None = None
@@ -261,6 +309,29 @@ class RowLocator:
         self._conn.execute("PRAGMA synchronous = NORMAL")
         self._conn.execute("PRAGMA busy_timeout = 10000")
         self._check_fingerprint()
+        if require_complete:
+            self._check_complete()
+
+    def _check_complete(self) -> None:
+        """Refuse a row map that does not cover the file.
+
+        The build is resumable, which means a half-built index is a normal
+        intermediate state and looks identical to a finished one — same schema,
+        same matching fingerprint. A reader that accepts it returns None for
+        every document in an unindexed row group, which downstream becomes "not
+        in corpus" and then an abstention, with nothing anywhere saying the
+        index was short. Callers that intend to *read* say so and get an error
+        instead; `build` does not, because building is how it gets filled.
+        """
+        indexed = len(self.indexed_row_groups())
+        total = self._parquet.metadata.num_row_groups
+        if indexed < total:
+            raise IncompleteRowMap(
+                f"{self.db_path} indexes {indexed} of {total} row groups in "
+                f"{self.parquet_path.name}; re-run "
+                "scripts/71_repartition_corpus.py to finish it. Documents in "
+                "the missing groups would silently read as absent."
+            )
 
     # -- lifecycle --
 

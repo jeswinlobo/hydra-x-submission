@@ -20,7 +20,9 @@ Context & Ontology.
 
 ## What it does
 
-Ask anything about the corpus. Retrieval searches all **511,962 documents**;
+Ask anything about the corpus. Retrieval searches all **511,962 rows —
+511,958 distinct documents**, four doc_ids being exact duplicates, deduplicated
+on ingest;
 whatever it reaches is parsed, resolved, and extracted into the graph during the
 request and stays there for later questions.
 
@@ -65,9 +67,9 @@ MATCH (e:Entity {id: $eid})-[:PARTICIPATED_IN]->(c:Channel {id: $cid})
 RETURN count(*) AS n
 ```
 
-On the loaded slice this decided **589 surfaces** that string matching cannot,
-across **4,869 queries** to the engine — `alex` resolved to Alex Chen over 42
-competitors. Where the graph does not separate the candidates, the mention stays
+On the loaded slice this decided **592 surfaces** that string matching cannot —
+`alex` resolved to Alex Chen over 35 competitors. Re-check with
+`scripts/35_verify_gate.py`, which reads the count back out of the graph. Where the graph does not separate the candidates, the mention stays
 unresolved with its candidate set recorded, because a wrong merge is worse than
 an honest "cannot tell".
 
@@ -81,8 +83,11 @@ Document -[:ASSERTS]-> Claim -[:SUPPORTED_BY]-> EvidenceSpan
 **Conflict topology.** Contested facts are `CONFLICTS_WITH` edges between claims,
 so the answer path finds them by traversal rather than by recomputation.
 
-Native path procedures (`algo.SPpaths`, `algo.SSpaths`, `algo.MSpaths`) return
-whole evidence paths, which is what the interface renders. Every answer carries
+`algo.SPpaths` returns the whole path behind an identity decision rather than a
+sentence this application composed about one, so the explanation and the graph
+cannot drift apart; the resolution panel renders it, labelled with the procedure
+that produced it. `algo.SSpaths` and `algo.MSpaths` are pinned by contract tests
+(`tests/test_hydra_contract.py`) but are not on the answer path. Every answer carries
 the engine's own `read_epoch` and bookmark, so the consistency position that
 produced it is visible alongside it.
 
@@ -139,9 +144,13 @@ questions that carry an answer key (`scripts/75_retrieval_eval.py`):
 By question type, which is the useful cut — lexical search does well where
 question wording overlaps the source and collapses where it does not:
 
-| intra-doc | conflicting | constrained | basic | project | completeness | **semantic** |
-|---|---|---|---|---|---|---|
-| 0.925 | 0.900 | 0.883 | 0.817 | 0.768 | 0.584 | **0.488** |
+| intra-doc | conflicting | misc | constrained | basic | project | completeness | **semantic** |
+|---|---|---|---|---|---|---|---|
+| 0.925 | 0.900 | 0.900 | 0.883 | 0.817 | 0.768 | 0.584 | **0.488** |
+
+All eight types the benchmark carries, none omitted. The recorded run is
+committed at `artifacts/retrieval_summary.json`, so these are checkable without
+re-running anything.
 
 That 0.488 is the number graph reasoning has to move, and it is why the graph
 exists rather than a bigger index.
@@ -151,7 +160,7 @@ produced in a pilot batch, **62 (12%) cited evidence that does not appear
 verbatim in the source and were rejected**. A span altering a single word of a
 real sentence is refused (`tests/test_conflicts.py`, `tests/test_parsers.py`).
 
-**Ingestion**: ~20,000 nodes/second measured; the whole corpus normalises in 22
+**Ingestion**: ~19,000 nodes/second measured; the whole corpus normalises in 22
 seconds and indexes in 312. Registering 511,958 document ids produced **zero
 collisions**.
 
@@ -169,6 +178,13 @@ once. Answering spent longer scanning parquet than talking to the model.
 and indexes that: **4,465ms → 12ms per document fetch**, and the preload scan on
 the first question disappears entirely.
 
+**No graph-vs-no-graph ablation was run.** PLAN.md called for four variants —
+lexical only, hybrid, hybrid plus graph structure, full TraceGraph — and only
+the first was measured; the retrieval numbers above *are* the lexical baseline.
+So the case for the graph rests on the capability argument above and on the
+resolution decisions the gate reads back, not on a measured answer-quality
+delta. That is the honest state of it.
+
 **Honest limits.** A cold question — one reaching documents the graph has not
 seen — takes 25–40 seconds, because enriching them during the request means live
 model calls; repeat questions are fast.
@@ -178,13 +194,16 @@ project actually made.
 
 ## Quickstart
 
-Requires Docker, Python 3.10+, [uv](https://docs.astral.sh/uv/), and an
-Anthropic API key.
+Requires Docker, Python 3.10+ (developed on 3.12), [uv](https://docs.astral.sh/uv/),
+and an Anthropic API key. Budget **~7 GB free disk** (1.4 GB corpus, a 1.4 GB
+re-chunked copy, a 2.5 GB lexical index) and **~8 GB RAM** — the container is
+capped at 6 GB in `docker-compose.yml`, so lower that first on a smaller machine.
 
 ```bash
 git clone https://github.com/jeswinlobo/hydra-x && cd hydra-x
 cp .env.example .env          # add ANTHROPIC_API_KEY
-# place the corpus at dataset/EnterpriseRAG-Bench/data/
+# corpus: https://huggingface.co/datasets/onyx-dot-app/EnterpriseRAG-Bench
+#   -> dataset/EnterpriseRAG-Bench/data/{documents,questions}/test.parquet
 
 ./scripts/bootstrap.sh        # everything, in order, ~10 minutes
 ./scripts/60_serve.sh         # → http://127.0.0.1:8000
@@ -201,11 +220,15 @@ round-trips a real query first, because a port is not proof.
 ## Verifying the claims above
 
 ```bash
-uv run pytest                             # 115 tests, 18 against the live engine
+uv run pytest                             # 136 tests, 18 against the live engine
 uv run python scripts/35_verify_gate.py   # 11 checks, read back from the graph
-uv run python scripts/55_conflicts.py     # contested facts + trust breakdown
+uv run python scripts/36_repair_graph.py  # audit identities and undecided mentions
 uv run python scripts/75_retrieval_eval.py --limit 470
 ```
+
+Every command above is read-only. `scripts/55_conflicts.py` is a pipeline step,
+not a check — it writes `CONFLICTS_WITH` edges — so it lives in `bootstrap.sh`
+rather than here; `36_repair_graph.py` likewise only writes with `--apply`.
 
 The gate script queries the graph rather than trusting the ingest, and its
 checks include the one that matters most: that citation validation distinguishes

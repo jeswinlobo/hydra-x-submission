@@ -39,6 +39,7 @@ from tracegraph.resolve import (  # noqa: E402
     METHOD_GRAPH_EVIDENCE,
     METHOD_UNRESOLVED,
     Resolver,
+    pack,
 )
 
 DOC = "Document"
@@ -208,8 +209,8 @@ def main() -> int:
 
         load_nodes(ENTITY, [
             {"vertex": entity_ids[key], "key": key, "name": person.display_name,
-             "kind": PERSON, "emails": ";".join(sorted(person.emails))[:400],
-             "domains": ";".join(sorted(person.domains))[:200], "run_id": run_id}
+             "kind": PERSON, "emails": pack(sorted(person.emails), 400),
+             "domains": pack(sorted(person.domains), 200), "run_id": run_id}
             for key, person in resolver.people.items()
         ], ["key", "name", "kind", "emails", "domains", "run_id"])
 

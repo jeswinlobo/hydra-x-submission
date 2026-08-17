@@ -4,9 +4,9 @@ Everything here was executed against
 `ghcr.io/hydra-db/hydradb@sha256:db78309a2…` (upstream commit
 `6a2fbb192f37f51a93690a2ae2d2f5e27e6e4219`) rather than read off documentation.
 Where the shipped docs and the running engine disagree, the engine wins and the
-disagreement is called out. `scripts/probe_bolt.py` and `scripts/probe_reads.py`
-reproduce every result; `tests/test_hydra_contract.py` holds the ones the code
-depends on.
+disagreement is called out. `tests/test_hydra_contract.py` reproduces these
+findings against a live node — 18 tests, run with `-m live` — and is the
+evidence for everything below that the code depends on.
 
 ## Transports are not interchangeable
 

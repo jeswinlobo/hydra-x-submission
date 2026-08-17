@@ -31,20 +31,33 @@ import pyarrow.parquet as pq  # noqa: E402
 
 from tracegraph import config, fts  # noqa: E402
 from tracegraph.ids import node_id  # noqa: E402
+from tracegraph.parquet_reader import read_answer_key, read_questions  # noqa: E402
 
 
 def load_questions(limit: int) -> list[dict]:
-    """Question text plus its answer key, for scoring only."""
-    table = pq.ParquetFile(config.QUESTIONS_PARQUET).read().to_pydict()
+    """Question text, joined to its answer key on question_id.
+
+    Deliberately two reads through two narrow doors rather than one wide one.
+    This used to be `pq.ParquetFile(...).read()`, which materialised every
+    column — `gold_answer` and `answer_facts` included, neither of which this
+    script has any use for — and made the firewall the docs describe a
+    convention rather than a mechanism.
+
+    `read_questions` cannot return gold; `read_answer_key` cannot return
+    anything else. Only the ids and the expected documents cross between them,
+    and only `question` reaches the retriever below.
+    """
+    key = {row["question_id"]: list(row["expected_doc_ids"] or [])
+           for row in read_answer_key()}
     out = []
-    for i in range(len(table["question_id"])):
-        expected = list(table["expected_doc_ids"][i] or [])
+    for row in read_questions():
+        expected = key.get(row["question_id"]) or []
         if not expected:
             continue
         out.append({
-            "question_id": table["question_id"][i],
-            "question": table["question"][i],
-            "question_type": table["question_type"][i],
+            "question_id": row["question_id"],
+            "question": row["question"],
+            "question_type": row["question_type"],
             "expected": expected,
         })
         if limit and len(out) >= limit:
@@ -64,6 +77,10 @@ def main() -> int:
 
     # The index rowid is the document's deterministic graph id, so a hit maps
     # back to a dsid without a second lookup table.
+    # Column-projected and batch-at-a-time rather than through
+    # `iter_documents`, which materialises a dict per document — half a million
+    # of them here, since this map covers the whole corpus. The gold firewall
+    # governs the questions file; the documents file has no answer key to leak.
     id_to_dsid: dict[int, str] = {}
     parquet = pq.ParquetFile(config.DOCUMENTS_PARQUET)
     for batch in parquet.iter_batches(batch_size=8000, columns=["doc_id"]):

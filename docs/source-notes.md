@@ -1,7 +1,7 @@
 # Source notes — what the nine sources actually look like
 
 Written from reading real documents out of the corpus, not from the dataset
-card. Reproduce with `scripts/10_inspect_sources.py`. PLAN.md Stage 0 exists
+card. The parsers built from these observations are covered by `tests/test_parsers.py`, against small synthetic fixtures rather than corpus text. PLAN.md Stage 0 exists
 because guessing a template and discovering the mistake after a 512k-document
 ingest is expensive; this is the record of that inspection.
 

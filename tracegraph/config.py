@@ -77,18 +77,42 @@ LOCATOR_PARQUET = INDEX_DIR / "documents-rowgroups.parquet"
 LOCATOR_DB = INDEX_DIR / "locator.sqlite3"
 
 
-def locator_parquet() -> Path:
-    """The file point lookups read: the re-chunked copy when it exists.
+class LocatorNotBuilt(RuntimeError):
+    """The re-chunked corpus and its row map have not been built."""
 
-    Falling back to the original keeps the system working before the
-    repartition has run — slowly, but working, which is the right failure.
+
+def locator_parquet() -> Path:
+    """The file point lookups read: the re-chunked copy.
+
+    This used to fall back to the original corpus, described as "slowly, but
+    working". It was neither. Nothing has populated a row map inside the id
+    registry since the repartition became a pipeline step, and `RowLocator`
+    creates its tables with `CREATE TABLE IF NOT EXISTS` while
+    `_check_fingerprint` *stores* a fingerprint when none is present — so the
+    fallback opened an empty index without raising, every fetch returned None,
+    `_read` turned that into "not in corpus", and the system abstained on every
+    question behind an HTTP 200. A fallback that silently answers nothing is
+    worse than no fallback, so this now refuses.
     """
-    return LOCATOR_PARQUET if LOCATOR_PARQUET.exists() else DOCUMENTS_PARQUET
+    _require_locator()
+    return LOCATOR_PARQUET
 
 
 def locator_db() -> Path:
-    """The row map matching whichever parquet `locator_parquet` returns."""
-    return LOCATOR_DB if LOCATOR_PARQUET.exists() else REGISTRY_DB
+    """The row map matching `locator_parquet`."""
+    _require_locator()
+    return LOCATOR_DB
+
+
+def _require_locator() -> None:
+    missing = [p for p in (LOCATOR_PARQUET, LOCATOR_DB) if not p.exists()]
+    if missing:
+        raise LocatorNotBuilt(
+            f"no document row map at {', '.join(str(p) for p in missing)}; "
+            "run scripts/71_repartition_corpus.py (bootstrap.sh does this). "
+            "Without it no document body can be fetched, and every question "
+            "would abstain."
+        )
 
 # --- HydraDB ----------------------------------------------------------------
 
