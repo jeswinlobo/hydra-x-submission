@@ -75,6 +75,7 @@
      what the system rejected, and it must not read as though it backed an
      answer. A dashed rule rather than the solid claim rule says "considered". */
   .examined .claim { border-left: 2px dashed var(--line); opacity: 0.62; }
+  .contested-claim { border-left-color: var(--warn); }
   .pathline { font-size: 11px; color: var(--accent); margin-top: 3px;
               font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .quote { color: var(--muted); font-size: 12.5px; font-style: italic;
@@ -146,8 +147,8 @@
 const KIND_COLOUR = { Document: "var(--doc)", Claim: "var(--claim)",
                       EvidenceSpan: "var(--span)", Entity: "var(--person)" };
 const EXAMPLES = [
-  "What is Grace O'Connor's role and what security commitments has Redwood made?",
   "What did Redwood commit to for SOC 2 and audit evidence?",
+  "Interview slate and role anchors for the Staff Inference Engineer opening",
   "What is the Q4 2029 revenue target for the Antarctic division?",
 ];
 let current = null, tab = "graph";
@@ -223,6 +224,26 @@ function renderAnswer() {
   const examined = (d.examined || []).slice(0, 5).map(card).join("");
   const looked = (d.examined_documents || []).length;
 
+  // What the answer stands on that some other document disputes. Found by a
+  // one-hop CONFLICTS_WITH walk from the cited claims, so the page is showing a
+  // disagreement the graph holds rather than one composed here. An answer built
+  // on a contested fact must not read as settled.
+  const alts = (d.alternatives || []).slice(0, 5);
+  const contested = alts.length ? `
+    <h3 style="font-size:12px;color:var(--warn);text-transform:uppercase;margin-top:16px">
+      Contested — ${alts.length} fact(s) another document disagrees with</h3>
+    ${alts.map(a => `
+      <div class="claim contested-claim">
+        <div class="t"><strong>${esc(a.subject)}</strong> — ${esc(a.predicate)}</div>
+        <div><span class="muted">cited&nbsp;</span>${esc(String(a.cited_value).slice(0, 90))}
+             <span class="cite">${esc(a.cited_dsid)}</span></div>
+        <div><span class="muted">rival&nbsp;</span>${esc(String(a.rival_value).slice(0, 90))}
+             <span class="cite">${esc(a.rival_dsid)}</span></div>
+        <div class="muted" style="font-size:11px">${
+          a.decided ? `graph favours one version, margin ${a.margin}`
+                    : "evidence does not decide between them"}</div>
+      </div>`).join("")}` : "";
+
   document.getElementById("answer").innerHTML = `
     <span class="badge ${a}">${label}</span>
     <div class="meter"><i style="width:${Math.round((d.confidence || 0) * 100)}%"></i></div>
@@ -237,7 +258,8 @@ function renderAnswer() {
                  Supporting claims — every span verified verbatim in its source</h3>${claims}` : ""}
     ${examined ? `<h3 style="font-size:12px;color:var(--muted);text-transform:uppercase;margin-top:16px">
                  Examined and not relied on — ${looked} document(s) reached, none supporting an answer</h3>
-                 <div class="examined">${examined}</div>` : ""}`;
+                 <div class="examined">${examined}</div>` : ""}
+    ${contested}`;
 }
 
 function renderGraph() {

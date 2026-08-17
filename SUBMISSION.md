@@ -86,10 +86,14 @@ Priya Sharma at procureco.com stay two. `scripts/37_rebuild_resolution.py`
 re-decides every identity in the graph and deletes the edges a superseded rule
 produced.
 
-**2. Provenance and conflict topology.**
+**2. Provenance and conflict resolution in the answer.**
 `Document -[:ASSERTS]-> Claim -[:SUPPORTED_BY]-> EvidenceSpan`, with
-`CONFLICTS_WITH` between contested claims, so the answer path finds contradictions
-by traversal rather than recomputation.
+`CONFLICTS_WITH` between contested claims. The answer path walks one hop from
+the claims it used, so an answer resting on a disputed fact comes back
+`conflicting` — confidence capped, both versions named, each with the document
+it came from — rather than confidently picking whichever version retrieval
+reached first. That is the track's third question type, and it is a traversal a
+vector index cannot perform at all.
 
 **3. Native path procedures and real consistency evidence.** `algo.SPpaths`
 returns the path behind a participation decision, and the resolution panel
@@ -126,7 +130,7 @@ batch, **62 (12%) cited evidence not appearing verbatim in the source and were
 rejected**.
 
 Ingestion runs at ~19,000 nodes/second; registering 511,958 document ids produced
-zero collisions. 146 tests pass, 20 of them against the live engine.
+zero collisions. 159 tests pass, 20 of them against the live engine.
 
 ## Team members and contributions
 

@@ -158,6 +158,90 @@ class AnswerController:
             hops=2,
         )
 
+    def contested(self, claims: Sequence[dict], *,
+                  asserted_in: str | None = None) -> list[dict]:
+        """Facts *the answer rests on* that some other document disputes.
+
+        Two filters, both learned by over-flagging. Anchoring on cited
+        *documents* was far too loose: a document about SOC 2 commitments also
+        mentions people's job titles, and those being contested elsewhere marked
+        the whole answer conflicting over facts it never used. Anchoring on the
+        evidence claims was still too loose, for the same reason one step in —
+        every claim extracted from a cited document is handed to the model, not
+        just the ones it used.
+
+        So the final test is whether the answer *states the contested value*.
+        `asserted_in` is the answer prose; a version the answer never asserts is
+        not a version the answer rests on. Crying wolf costs exactly what
+        staying silent costs, and the demo check caught the loose form flipping
+        a stable answer to `conflicting` in four rounds out of ten.
+
+        The track brief names conflict resolution as one of the four things a
+        question can need, alongside lookups, multi-hop reasoning, and knowing
+        when the answer is absent. Without this step the other three were served
+        and this one was not: a question about a contested fact got a confident
+        answer from whichever version retrieval happened to surface, with
+        nothing anywhere saying the corpus disagrees with itself. For a system
+        whose entire premise is that enterprise sources contradict each other,
+        that was the wrong silence.
+
+        `CONFLICTS_WITH` is an edge, so finding the dispute is a walk from a
+        claim already in hand rather than a re-comparison of everything. Both
+        directions are followed: the edge is written once between a pair, and
+        the used claim may sit at either end.
+
+        The walk is anchored on the *document* in Cypher and narrowed to the
+        used claims in Python. Filtering claim-by-claim in the query meant
+        sixteen property-anchored `Claim` matches per answer and cost twenty
+        seconds; anchoring on the document is a typed adjacency walk from a
+        vertex the engine finds by property, and four of those answer the same
+        question.
+        """
+        wanted = {(c["subject"], c["predicate"]) for c in claims}
+        found: dict[tuple, dict] = {}
+        for dsid in sorted({c["dsid"] for c in claims})[:4]:
+            for direction, pattern in (
+                ("outgoing",
+                 "MATCH (d:Document {dsid: $dsid})-[:ASSERTS]->(a:Claim)"
+                 "-[e:CONFLICTS_WITH]->(b:Claim) "),
+                ("incoming",
+                 "MATCH (d:Document {dsid: $dsid})-[:ASSERTS]->(a:Claim)"
+                 "<-[e:CONFLICTS_WITH]-(b:Claim) "),
+            ):
+                rows = self._run(
+                    f"contested_claims({direction})",
+                    pattern +
+                    "WHERE d.run_id = $r AND e.run_id = $r "
+                    "RETURN a.subject AS subject, a.predicate AS predicate, "
+                    "a.object AS cited_value, b.object AS rival_value, "
+                    "b.dsid AS rival_dsid, e.decided AS decided, "
+                    "e.margin AS margin LIMIT 20",
+                    {"dsid": dsid, "r": self.run_id},
+                    hops=2,
+                )
+                for row in rows:
+                    if (row["subject"], row["predicate"]) not in wanted:
+                        continue
+                    # Two documents saying the same thing corroborate; only a
+                    # different value is a disagreement.
+                    if row["cited_value"] == row["rival_value"]:
+                        continue
+                    if asserted_in is not None and not _states(
+                            asserted_in, row["cited_value"]):
+                        continue
+                    pair = (row["subject"], row["predicate"], row["rival_value"])
+                    found.setdefault(pair, {
+                        "subject": row["subject"],
+                        "predicate": row["predicate"],
+                        "cited_value": row["cited_value"],
+                        "rival_value": row["rival_value"],
+                        "cited_dsid": dsid,
+                        "rival_dsid": row["rival_dsid"],
+                        "decided": bool(row["decided"]),
+                        "margin": row["margin"],
+                    })
+        return list(found.values())[:6]
+
     # --- validation ---------------------------------------------------------
 
     def citation_exists(self, dsid: str) -> bool:
@@ -259,9 +343,21 @@ class AnswerController:
         confidence = round(
             min(0.95, 0.4 + 0.1 * len(cited) + 0.05 * min(len(used), 6)), 3)
 
+        # An answer standing on a contested fact is not simply "supported". The
+        # corpus disagrees with itself about it, and saying so is the whole
+        # premise — the alternative is a confident answer built on whichever
+        # version retrieval happened to reach first, which is the failure this
+        # project exists to make visible.
+        alternatives = self.contested(used, asserted_in=result.answer)
+        answerability = CONFLICTING if alternatives else SUPPORTED
+        if alternatives:
+            # Confidence is capped rather than zeroed: the evidence is real and
+            # cited, it is the agreement that is missing.
+            confidence = min(confidence, 0.6)
+
         return ControllerResult(
-            answer=result.answer, document_ids=cited, answerability=SUPPORTED,
-            confidence=confidence, claims=used[:20],
+            answer=result.answer, document_ids=cited, answerability=answerability,
+            confidence=confidence, claims=used[:20], alternatives=alternatives,
             rejected_citations=rejected, rejected_spans=rejected_spans,
             trace=self._trace(started),
         )
@@ -310,6 +406,28 @@ class AnswerController:
             "ingested_on_demand": self._ingested,
             "latency_ms": round((time.perf_counter() - started) * 1000, 2),
         }
+
+
+def _states(answer: str, value) -> bool:
+    """Does the answer actually assert this value?
+
+    Substring first, then a token-overlap fallback, because prose reformats a
+    claim object: "Director, Trust & Security, Redwood Inference" may appear as
+    "Director of Trust & Security". Requiring most of the distinctive tokens
+    keeps that match while refusing an incidental one-word coincidence.
+    """
+    text = (answer or "").casefold()
+    value = str(value or "").strip()
+    if not value or not text:
+        return False
+    if value.casefold() in text:
+        return True
+    import re
+    tokens = {t for t in re.findall(r"[a-z0-9]+", value.casefold()) if len(t) > 2}
+    if len(tokens) < 2:
+        return False
+    present = sum(1 for t in tokens if t in text)
+    return present / len(tokens) >= 0.75
 
 
 def _terms(question: str) -> list[str]:

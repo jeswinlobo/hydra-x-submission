@@ -44,12 +44,23 @@ $ ./scripts/60_serve.sh          # → http://127.0.0.1:8000
 Neither of those documents was preloaded. Retrieval found them among 511,962,
 and they were enriched while the question was being answered.
 
+Ask something the corpus contradicts itself about and it says so, with both
+versions and the document behind each:
+
+> **Q: Interview slate and role anchors for the Staff Inference Engineer opening**
+>
+> **conflicting** · confidence 0.6 · 5 contested facts
+>
+> `Grace O'Connor — works as`
+> cited *Hiring Manager, Inference Runtime* · rival *Director, Talent Strategy*
+> · evidence does not decide between them
+
 Ask something the corpus does not contain and it abstains — no citations, no
-guess.
+claims, no guess.
 
 ## Why HydraDB is doing real work
 
-The graph is not a place results are filed after the fact. Three things are
+The graph is not a place results are filed after the fact. Four things are
 decided by traversal, and none of them survives if HydraDB is removed.
 
 **Entity resolution.** Slack is 55.8% of the corpus and its speakers are bare
@@ -112,8 +123,29 @@ can be inspected on its own and one span can support several claims:
 Document -[:ASSERTS]-> Claim -[:SUPPORTED_BY]-> EvidenceSpan
 ```
 
-**Conflict topology.** Contested facts are `CONFLICTS_WITH` edges between claims,
-so the answer path finds them by traversal rather than by recomputation.
+**Conflict resolution, in the answer itself.** The brief names four things a
+question can need — a lookup, multi-hop reasoning, conflict resolution, and
+knowing when the answer is absent. The fourth was the one this got wrong for a
+while: `CONFLICTS_WITH` edges existed and a panel displayed them, but the answer
+path never looked, so a question about a disputed fact came back confident and
+singular.
+
+It now walks one hop from the claims the answer used and returns
+`answerability: "conflicting"` with both versions and where each came from:
+
+> **Interview slate and role anchors for the Staff Inference Engineer opening**
+> **conflicting** · confidence 0.6 · 5 contested facts
+>
+> `Grace O'Connor — works as`
+> cited *Hiring Manager, Inference Runtime* · rival *Director, Talent Strategy*
+> — evidence does not decide between them
+
+Precision here cost two attempts, both caught by the stability check. Anchoring
+on cited *documents* flagged a SOC 2 answer over a job title it never mentioned;
+anchoring on the evidence claims still over-flagged, because every claim
+extracted from a cited document is handed to the model, not only the ones it
+used. The test that holds is whether the answer **states** the contested value.
+Crying wolf costs exactly what silence costs.
 
 `algo.SPpaths` returns the path connecting a resolved identity to a channel it
 participates in, and the panel renders the elements the engine returned rather
@@ -203,8 +235,8 @@ collisions**.
 
 **Demo stability.** Ten consecutive rounds of the three demo questions, all
 clean: verdicts as expected, every citation validated against the graph, and the
-abstention citing nothing (`scripts/80_demo_check.py`). Latency p50 8.0s, p95
-12.4s.
+abstention citing nothing (`scripts/80_demo_check.py`). Latency p50 8.6s, p95
+13.5s.
 
 That p50 was 29.6s until the corpus was re-chunked. The file ships as a single
 row group holding all 511,962 documents, and parquet decodes a row group whole,
@@ -279,7 +311,7 @@ round-trips a real query first, because a port is not proof.
 ## Verifying the claims above
 
 ```bash
-uv run pytest                             # 146 tests, 20 against the live engine
+uv run pytest                             # 159 tests, 20 against the live engine
 uv run python scripts/35_verify_gate.py   # 11 checks, read back from the graph
 uv run python scripts/36_repair_graph.py  # audit identities and undecided mentions
 uv run python scripts/37_rebuild_resolution.py  # re-decide every identity, report drift

@@ -2,14 +2,21 @@
 """Run the demo questions repeatedly and refuse to pass on a flaky result.
 
 PLAN.md requires ten consecutive clean runs before recording, because a demo
-that fails once in ten will fail on camera. This checks more than "did it not
-crash": each question has an expected answerability, every returned citation
-must exist in the graph, and a question meant to abstain must return no
-citations at all.
+that fails once in ten will fail on camera.
 
-Language-model output is not byte-identical between runs and is not required to
-be. What must hold is the part a viewer would notice — the verdict, the
-citations, and whether anything was fabricated.
+What it checks is invariants, not exact labels. Language-model output is not
+byte-identical between runs and is not required to be, and one verdict genuinely
+moves with it: whether an answer is `conflicting` depends on whether the prose
+the model wrote states a value another document disputes. Pinning that to a
+single expected label failed three rounds in forty, all three of them correct
+behaviour. So each question lists the verdicts that are acceptable, and what is
+held fixed is what a viewer would actually notice going wrong:
+
+* an abstention carries no citations and no claims;
+* a `conflicting` verdict names the competing version rather than just asserting
+  a dispute;
+* a `supported` answer is not quietly sitting on a dispute the system found;
+* every returned citation exists in the graph under a labelled match.
 
     uv run python scripts/80_demo_check.py --rounds 10
 """
@@ -66,16 +73,45 @@ def main() -> int:
                 elapsed = time.perf_counter() - started
                 latencies.append(elapsed)
 
-                ok = result.answerability == expected
+                # `expected` is a set of acceptable verdicts, not one label.
+                #
+                # A single label was the wrong test and the check itself proved
+                # it: whether an answer is `conflicting` depends on whether the
+                # prose the model wrote states a value some other document
+                # disputes, so the same question legitimately came back
+                # `supported` in six rounds and `conflicting` in two — both
+                # correct. What must never vary is the invariants below, and
+                # those are what this now holds the system to.
+                allowed = {expected} if isinstance(expected, str) else set(expected)
+                ok = result.answerability in allowed
                 if not ok:
                     failures.append(
                         f"round {round_no}: {question[:44]!r} returned "
-                        f"{result.answerability}, expected {expected}")
+                        f"{result.answerability}, expected one of {sorted(allowed)}")
 
                 # An abstention that cites anything is not an abstention.
-                if expected == "insufficient" and result.document_ids:
+                if result.answerability == "insufficient" and (
+                        result.document_ids or result.claims):
                     failures.append(
-                        f"round {round_no}: abstention cited {result.document_ids}")
+                        f"round {round_no}: abstention carried "
+                        f"{len(result.document_ids)} citation(s) and "
+                        f"{len(result.claims)} claim(s)")
+                    ok = False
+
+                # A conflicting verdict has to name what is in dispute, or it is
+                # a label with nothing behind it.
+                if result.answerability == "conflicting" and not result.alternatives:
+                    failures.append(
+                        f"round {round_no}: conflicting verdict carried no "
+                        "competing version")
+                    ok = False
+
+                # Conversely, a supported answer must not be sitting on a
+                # dispute the system found and then failed to report.
+                if result.answerability == "supported" and result.alternatives:
+                    failures.append(
+                        f"round {round_no}: supported answer carried "
+                        f"{len(result.alternatives)} contested fact(s)")
                     ok = False
 
                 # Every citation has to survive a labelled existence check.
@@ -86,7 +122,9 @@ def main() -> int:
                         ok = False
 
                 line.append(f"{'ok' if ok else 'FAIL'}:{result.answerability[:4]}"
-                            f"/{len(result.document_ids)}c/{elapsed:.0f}s")
+                            f"/{len(result.document_ids)}c"
+                            f"{'/!' + str(len(result.alternatives)) if result.alternatives else ''}"
+                            f"/{elapsed:.0f}s")
             print("  ".join(line), flush=True)
 
         ingestor.close()
