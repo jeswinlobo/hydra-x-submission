@@ -28,9 +28,9 @@ from . import config
 
 logger = logging.getLogger(__name__)
 
-# A connection that died in the pool is worth one more try; a query the engine
-# rejected is not. Two attempts cover the idle-connection case without turning a
-# real outage into a long stall.
+# A connection that died in the pool is worth retrying; a query the engine
+# rejected is not. Two retries — three attempts total — cover the idle-connection
+# case without turning a real outage into a long stall.
 _TRANSIENT_RETRIES = 2
 _RETRY_BACKOFF_S = 0.25
 

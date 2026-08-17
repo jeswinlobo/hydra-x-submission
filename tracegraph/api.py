@@ -104,7 +104,20 @@ def bodies() -> dict[str, str]:
     so the work is bounded by the question rather than by the corpus, and the
     second question about the same document pays nothing.
     """
-    return _state["bodies"]
+    # Bounded, because this is a process-wide cache in a server that is meant to
+    # stay up. Each entry is a normalised document body and a question adds up to
+    # eight; left alone it grows for as long as people keep asking. Dropping the
+    # oldest half is enough — the controller re-fetches in twelve milliseconds.
+    cache = _state["bodies"]
+    if len(cache) > MAX_CACHED_BODIES:
+        with _init:
+            for dsid in list(cache)[: len(cache) // 2]:
+                cache.pop(dsid, None)
+    return cache
+
+
+# Roughly a hundred questions' worth of documents before the cache is trimmed.
+MAX_CACHED_BODIES = 800
 
 
 class AskRequest(BaseModel):
