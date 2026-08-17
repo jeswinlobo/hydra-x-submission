@@ -155,7 +155,12 @@ real sentence is refused (`tests/test_conflicts.py`, `tests/test_parsers.py`).
 seconds and indexes in 312. Registering 511,958 document ids produced **zero
 collisions**.
 
-**Honest limits.** A cold question takes about 20 seconds, because enriching
+**Demo stability.** Ten consecutive rounds of the three demo questions, all
+clean: verdicts as expected, every citation validated against the graph, and the
+abstention citing nothing (`scripts/80_demo_check.py`). Latency p50 29.6s, p95
+45.6s.
+
+**Honest limits.** A cold question takes 25–40 seconds, because enriching
 documents during the request means live model calls; repeat questions are fast.
 Answer-quality scores against the official evaluator are **not** reported — that
 harness was not run, and the retrieval numbers above are the measurements this

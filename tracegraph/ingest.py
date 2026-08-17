@@ -124,8 +124,15 @@ class OnDemandIngestor:
             return IngestReport(dsid, already_present=True)
         return self._commit(self._prepare(dsid))
 
-    def _prepare(self, dsid: str) -> _Prepared:
-        """Read and extract. No graph writes, so this is safe to run in parallel."""
+    def _read(self, dsid: str) -> _Prepared:
+        """Read and parse. Main thread only.
+
+        The locator holds a SQLite connection, and SQLite objects cannot cross
+        threads. Reading here rather than inside the worker is not a workaround
+        for that rule so much as the right split anyway: the parquet read is
+        milliseconds and the model call is seconds, so only the latter is worth
+        parallelising.
+        """
         started = time.perf_counter()
         record = self.locator.fetch(dsid)
         if record is None:
@@ -140,16 +147,25 @@ class OnDemandIngestor:
         parsed = parse_document(dsid, prepared.source_type, prepared.title,
                                 record.get("content") or "")
         prepared.mentions = parsed.verified_mentions(body)[:400]
-
-        if self.extract and body.strip():
-            try:
-                result = extract_claims(body[: self.max_body], dsid)
-                prepared.accepted = result.accepted
-                prepared.rejected = result.rejected
-            except Exception as exc:  # noqa: BLE001 - one document must not fail a query
-                prepared.error = f"extraction failed: {exc}"[:200]
         prepared.seconds = time.perf_counter() - started
         return prepared
+
+    def _extract(self, prepared: _Prepared) -> _Prepared:
+        """Call the model. Safe to run in parallel — it touches nothing local."""
+        if not self.extract or not prepared.body.strip() or prepared.error:
+            return prepared
+        started = time.perf_counter()
+        try:
+            result = extract_claims(prepared.body[: self.max_body], prepared.dsid)
+            prepared.accepted = result.accepted
+            prepared.rejected = result.rejected
+        except Exception as exc:  # noqa: BLE001 - one document must not fail a query
+            prepared.error = f"extraction failed: {exc}"[:200]
+        prepared.seconds += time.perf_counter() - started
+        return prepared
+
+    def _prepare(self, dsid: str) -> _Prepared:
+        return self._extract(self._read(dsid))
 
     def _commit(self, prepared: _Prepared) -> IngestReport:
         """Write what was prepared. Serialised, because the graph writes are."""
@@ -283,11 +299,18 @@ class OnDemandIngestor:
         if not todo:
             return present
 
-        # Extraction is the slow half and is thread-safe; the graph writes that
-        # follow are serialised by the driver.
-        results: dict[str, IngestReport] = {}
+        # Read here, extract on several threads, write back here.
+        #
+        # Reading cannot move into the pool: the row locator holds a SQLite
+        # connection, and SQLite objects cannot cross threads. Submitting the
+        # whole prepare step failed on the first fetch in every worker, which
+        # left every document enriched to nothing — silently, because one
+        # document failing must not fail the query. The split is right on its
+        # own terms as well: the parquet read is milliseconds, the model call is
+        # seconds, and only the latter is worth parallelising.
+        results: dict[str, _Prepared] = {d: self._read(d) for d in todo}
         with ThreadPoolExecutor(max_workers=min(len(todo), 6)) as pool:
-            futures = {pool.submit(self._prepare, d): d for d in todo}
+            futures = {pool.submit(self._extract, results[d]): d for d in todo}
             for future in as_completed(futures):
                 dsid = futures[future]
                 try:
