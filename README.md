@@ -86,13 +86,15 @@ merge — the identities must also share an organisational root:
 | `grace@redwood.com` + `grace.oconnor@redwood.ai` + `grace@redwoodinference.com` | one Grace O'Connor, 14 addresses |
 | `priya@mediloop.com` + `priya.sharma@procureco.com` | two Priya Sharmas |
 
-Getting that wrong is not hypothetical: an earlier rule merged on name alone and
+Getting that wrong is not hypothetical. An earlier rule merged on name alone and
 put 76 identities across unrelated companies, collecting 366 mentions between
-them — Elena Rossi at cardiotech.com absorbed Elena Rossi at microsoft.com.
+them — Elena Rossi at cardiotech.com had absorbed Elena Rossi at microsoft.com,
+and a `procurement@` role address had been folded into a person.
 `scripts/37_rebuild_resolution.py` re-decides every identity in the graph and
 **deletes** the edges the old rule produced, which the engine permits only
-through a form documented in `docs/engine-notes.md`. It is idempotent: a second
-run finds nothing to change.
+through a form documented in `docs/engine-notes.md`. The graph now holds **zero**
+identities spanning unrelated organisations and **zero** mentions carrying two
+resolutions; the script is idempotent, so a second run finds nothing to change.
 
 **Provenance.** Claims and evidence spans are nodes, not properties, so a span
 can be inspected on its own and one span can support several claims:

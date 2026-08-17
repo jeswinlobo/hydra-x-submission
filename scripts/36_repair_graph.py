@@ -66,12 +66,11 @@ def audit_entities(client: HydraClient, run_id: str) -> list[dict]:
       has its own Entity vertex, so the graph holds both, and new mentions of it
       resolve to whichever one survived the fold.
 
-    Deliberately *not* repaired: an address from another organisation whose own
-    vertex does not exist. That is the bulk loader's merge-by-name behaviour,
-    which predates this script — 178 addresses on this corpus. Whether those are
-    one person who changed employer or several people sharing a name cannot be
-    settled from the graph alone, and rewriting them here would be a guess
-    dressed as a repair.
+    Deliberately *not* repaired: which identities should have been merged in the
+    first place. That is a resolution decision, and re-deciding it belongs to
+    `scripts/37_rebuild_resolution.py`, which re-runs the rule over every
+    document and reconciles the edges. This script only removes damage that no
+    rule would have produced.
     """
     rows = client.bolt_read(
         "MATCH (e:Entity) WHERE e.run_id = $r RETURN e.id AS id, e.key AS key, "
