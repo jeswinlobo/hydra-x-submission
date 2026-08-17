@@ -10,6 +10,8 @@ the answer and the consistency position that produced it together.
 
 from __future__ import annotations
 
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -21,8 +23,6 @@ from .conflicts import ClaimRecord, detect_conflicts
 from .controller import AnswerController
 from .hydra_client import HydraClient, parse_bookmark
 from .ingest import OnDemandIngestor
-from .parquet_reader import iter_documents
-from .parsers import normalise_content
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
@@ -30,18 +30,40 @@ app = FastAPI(title="TraceGraph", version="0.1.0")
 
 _state: dict = {"client": None, "run_id": None, "bodies": {}, "ingestor": None}
 
+# These endpoints are synchronous, so FastAPI runs each request on a worker
+# thread out of a pool. Two things follow, and both used to be wrong here.
+#
+# First, the lazy singletons below race: two first requests arriving together
+# each saw `None` and each built a client, and the loser's connection was
+# dropped on the floor still open. `_init` serialises construction so exactly
+# one is built.
+#
+# Second, whatever is shared has to survive being used from a thread other than
+# the one that made it. The id registry and the row locator each hold a SQLite
+# connection, which refuses cross-thread use outright — that is the
+# `sqlite3.ProgrammingError` this cache produced under concurrent questions.
+# Both now carry their own lock; see `RowLocator.__init__`.
+#
+# The lock is reentrant because `ingestor()` holds it while calling `client()`.
+_init = threading.RLock()
+
 
 def ingestor() -> OnDemandIngestor:
     """Enriches retrieved documents so any question over the corpus can be asked."""
     if _state["ingestor"] is None:
-        _state["ingestor"] = OnDemandIngestor(client(), run_id())
+        with _init:
+            if _state["ingestor"] is None:
+                _state["ingestor"] = OnDemandIngestor(client(), run_id())
     return _state["ingestor"]
 
 
 def client() -> HydraClient:
     if _state["client"] is None:
-        _state["client"] = HydraClient()
-        _state["client"].verify()
+        with _init:
+            if _state["client"] is None:
+                created = HydraClient()
+                created.verify()
+                _state["client"] = created
     return _state["client"]
 
 
@@ -58,35 +80,29 @@ def run_id() -> str:
     preloaded would put the system back to only knowing a curated slice.
     """
     if _state["run_id"] is None:
-        rows = client().bolt_read(
-            "MATCH (d:Document) RETURN d.run_id AS run_id ORDER BY run_id DESC LIMIT 1")
-        _state["run_id"] = rows[0]["run_id"] if rows else DEFAULT_RUN
+        with _init:
+            if _state["run_id"] is None:
+                rows = client().bolt_read(
+                    "MATCH (d:Document) RETURN d.run_id AS run_id "
+                    "ORDER BY run_id DESC LIMIT 1")
+                _state["run_id"] = rows[0]["run_id"] if rows else DEFAULT_RUN
     return _state["run_id"]
 
 
 def bodies() -> dict[str, str]:
-    """Document bodies, loaded once, for re-checking spans at answer time.
+    """Document bodies, for re-checking spans at answer time.
 
-    Held in memory rather than re-read per request: the slice is small, and a
-    span check that is slow enough to skip is a span check that gets skipped.
+    A cache that fills as questions are asked, not a preload. It used to stream
+    the corpus on the first question to gather every body in the run — a scan of
+    the whole 1.4 GB file to collect a few hundred documents, most of which that
+    question had no use for.
+
+    The controller fetches what it is missing through the ingestor's row
+    locator, which is a twelve-millisecond point lookup since the corpus was
+    re-chunked, and writes it back here. A question needs at most eight bodies,
+    so the work is bounded by the question rather than by the corpus, and the
+    second question about the same document pays nothing.
     """
-    if not _state["bodies"]:
-        rows = client().bolt_read(
-            "MATCH (d:Document) WHERE d.run_id = $r RETURN d.dsid AS dsid",
-            {"r": run_id()})
-        wanted = {row["dsid"] for row in rows}
-        if not wanted:
-            # Nothing preloaded. On-demand ingestion supplies bodies for the
-            # documents a question actually reaches.
-            _state["bodies"] = {}
-            return _state["bodies"]
-        loaded = {}
-        for doc in iter_documents(columns=["doc_id", "content"]):
-            if doc["doc_id"] in wanted:
-                loaded[doc["doc_id"]] = normalise_content(doc["content"])
-                if len(loaded) == len(wanted):
-                    break
-        _state["bodies"] = loaded
     return _state["bodies"]
 
 
@@ -94,37 +110,70 @@ class AskRequest(BaseModel):
     question: str
 
 
-@app.get("/api/status")
-def status() -> dict:
-    """Graph scale and the current consistency position."""
-    c = client()
-    counts = {}
-    for label in ("Document", "Entity", "Mention", "Claim", "EvidenceSpan", "Channel"):
-        rows = c.bolt_read(
-            f"MATCH (n:{label}) WHERE n.run_id = $r RETURN count(*) AS n",
-            {"r": run_id()})
-        counts[label] = rows[0]["n"]
+NODE_LABELS = ("Document", "Entity", "Mention", "Claim", "EvidenceSpan", "Channel")
 
-    edges = {}
-    for rel, src, dst in (
-        ("RESOLVES_TO", "Mention", "Entity"),
-        ("CANDIDATE_FOR", "Mention", "Entity"),
-        ("ASSERTS", "Document", "Claim"),
-        ("SUPPORTED_BY", "Claim", "EvidenceSpan"),
-        ("CONFLICTS_WITH", "Claim", "Claim"),
-        ("PARTICIPATED_IN", "Entity", "Channel"),
-    ):
+# Counting a relationship type means anchoring on a label and expanding every
+# vertex under it, so the cost tracks the size of the anchor rather than the
+# number of edges. The two anchored on Mention dominate everything else —
+# RESOLVES_TO takes 3.9s and CANDIDATE_FOR 8.2s against 8,889 mentions, while
+# CONFLICTS_WITH, anchored on Claim, takes 15ms — and they grow as the graph
+# does. So they are not counted unless asked for: the status bar polls this
+# endpoint, and it displays neither.
+#
+# Both endpoints must carry a label. `MATCH ()-[e:CANDIDATE_FOR]->()` is planned
+# as a precomputed cross join and hits the 30-second query timeout; see
+# docs/engine-notes.md.
+CHEAP_EDGES = (
+    ("ASSERTS", "Document", "Claim"),
+    ("SUPPORTED_BY", "Claim", "EvidenceSpan"),
+    ("CONFLICTS_WITH", "Claim", "Claim"),
+    ("PARTICIPATED_IN", "Entity", "Channel"),
+)
+TRAVERSAL_EDGES = (
+    ("RESOLVES_TO", "Mention", "Entity"),
+    ("CANDIDATE_FOR", "Mention", "Entity"),
+)
+
+
+@app.get("/api/status")
+def status(full: bool = False) -> dict:
+    """Graph scale and the current consistency position.
+
+    `full=true` adds the two resolution edge counts, which cost about twelve
+    seconds between them. The default leaves them out so the page's status bar
+    fills promptly; `/api/resolution` reports the same structure in a form that
+    is actually readable.
+    """
+    c, run = client(), run_id()
+    edge_specs = CHEAP_EDGES + (TRAVERSAL_EDGES if full else ())
+
+    def count_nodes(label: str) -> tuple[str, int]:
+        rows = c.bolt_read(
+            f"MATCH (n:{label}) WHERE n.run_id = $r RETURN count(*) AS n", {"r": run})
+        return label, rows[0]["n"]
+
+    def count_edges(spec: tuple[str, str, str]) -> tuple[str, int]:
+        rel, src, dst = spec
         rows = c.bolt_read(
             f"MATCH (a:{src})-[e:{rel}]->(b:{dst}) WHERE e.run_id = $r "
-            "RETURN count(*) AS n", {"r": run_id()})
-        edges[rel] = rows[0]["n"]
+            "RETURN count(*) AS n", {"r": run})
+        return rel, rows[0]["n"]
+
+    # Concurrently, because these are independent reads and the driver opens a
+    # session per call. Serially even the cheap counts added up to a visible
+    # wait; together they cost about as much as the slowest one.
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        node_rows = pool.map(count_nodes, NODE_LABELS)
+        edge_rows = pool.map(count_edges, edge_specs)
+        counts, edges = dict(node_rows), dict(edge_rows)
 
     probe = c.http_query("MATCH (d:Document) RETURN count(*) AS c")
     scope = parse_bookmark(probe.bookmark) if probe.bookmark else None
     return {
-        "run_id": run_id(),
+        "run_id": run,
         "nodes": counts,
         "edges": edges,
+        "edges_omitted": [] if full else [rel for rel, _, _ in TRAVERSAL_EDGES],
         "consistency": {
             "read_epoch": probe.read_epoch,
             "bookmark": probe.bookmark,
@@ -143,8 +192,11 @@ def ask(request: AskRequest) -> dict:
     payload = result.to_contract()
     payload["rejected_citations"] = result.rejected_citations
     payload["rejected_spans"] = len(result.rejected_spans)
-    payload["evidence_graph"] = _evidence_graph(result.document_ids or
-                                                [c["dsid"] for c in result.claims[:3]])
+    # Only a supported answer gets an evidence graph. Falling back to whatever
+    # was retrieved drew a subgraph under an abstention, which reads as evidence
+    # for an answer the system just declined to give.
+    payload["evidence_graph"] = _evidence_graph(result.document_ids)
+    payload["examined_documents"] = sorted({c["dsid"] for c in result.examined})
     return payload
 
 

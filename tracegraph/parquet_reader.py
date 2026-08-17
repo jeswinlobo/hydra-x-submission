@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -245,17 +246,28 @@ class RowLocator:
 
         self._parquet = _open(self.parquet_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(self.db_path)
+        # A locator outlives a single thread once it is held by a web server:
+        # the request that creates it and the request that reads it can land on
+        # different workers, and SQLite refuses a connection used from a thread
+        # other than the one that opened it. The lock is what makes that safe —
+        # `check_same_thread=False` only removes the guard, it does not make
+        # concurrent use correct. Reads of a parquet row group are serialised by
+        # the same lock, which costs nothing here because a fetch is
+        # milliseconds and the model call beside it is seconds.
+        self._lock = threading.RLock()
+        self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.executescript(_LOCATOR_SCHEMA)
         self._conn.execute("PRAGMA journal_mode = WAL")
         self._conn.execute("PRAGMA synchronous = NORMAL")
+        self._conn.execute("PRAGMA busy_timeout = 10000")
         self._check_fingerprint()
 
     # -- lifecycle --
 
     def close(self) -> None:
-        self._conn.close()
-        self._parquet.close()
+        with self._lock:
+            self._conn.close()
+            self._parquet.close()
 
     def __enter__(self) -> RowLocator:
         return self
@@ -400,11 +412,15 @@ class RowLocator:
     # -- query --
 
     def indexed_row_groups(self) -> set[int]:
-        rows = self._conn.execute("SELECT row_group FROM indexed_row_group").fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT row_group FROM indexed_row_group").fetchall()
         return {row[0] for row in rows}
 
     def __len__(self) -> int:
-        return self._conn.execute("SELECT count(*) FROM doc_location").fetchone()[0]
+        with self._lock:
+            return self._conn.execute(
+                "SELECT count(*) FROM doc_location").fetchone()[0]
 
     def fetch(
         self, doc_id: str, columns: Sequence[str] | None = None
@@ -416,10 +432,11 @@ class RowLocator:
         index would otherwise attach the wrong body to a citation, which is the
         one failure this whole pipeline cannot tolerate.
         """
-        located = self._conn.execute(
-            "SELECT row_group, row_index FROM doc_location WHERE doc_id = ?",
-            (doc_id,),
-        ).fetchone()
+        with self._lock:
+            located = self._conn.execute(
+                "SELECT row_group, row_index FROM doc_location WHERE doc_id = ?",
+                (doc_id,),
+            ).fetchone()
         if located is None:
             return None
         row_group, row_index = located
@@ -430,23 +447,27 @@ class RowLocator:
         if projection is not None and DOC_ID_COLUMN not in projection:
             projection = [DOC_ID_COLUMN, *projection]
 
+        # The parquet reader is not thread-safe either, so the decode is held
+        # under the same lock as the lookup above.
         offset = 0
-        for batch in self._parquet.iter_batches(
-            batch_size=FETCH_BATCH_ROWS,
-            row_groups=[row_group],
-            columns=projection,
-            use_threads=False,
-        ):
-            if row_index < offset + batch.num_rows:
-                record = batch.slice(row_index - offset, 1).to_pylist()[0]
-                if record[DOC_ID_COLUMN] != doc_id:
-                    raise RuntimeError(
-                        f"{self.db_path} points {doc_id} at row {row_index} of row "
-                        f"group {row_group}, which holds {record[DOC_ID_COLUMN]!r}; "
-                        "the index and the parquet file disagree"
-                    )
-                return record
-            offset += batch.num_rows
+        with self._lock:
+            for batch in self._parquet.iter_batches(
+                batch_size=FETCH_BATCH_ROWS,
+                row_groups=[row_group],
+                columns=projection,
+                use_threads=False,
+            ):
+                if row_index < offset + batch.num_rows:
+                    record = batch.slice(row_index - offset, 1).to_pylist()[0]
+                    if record[DOC_ID_COLUMN] != doc_id:
+                        raise RuntimeError(
+                            f"{self.db_path} points {doc_id} at row {row_index} of "
+                            f"row group {row_group}, which holds "
+                            f"{record[DOC_ID_COLUMN]!r}; the index and the parquet "
+                            "file disagree"
+                        )
+                    return record
+                offset += batch.num_rows
 
         raise RuntimeError(
             f"{self.db_path} points {doc_id} at row {row_index} of row group "

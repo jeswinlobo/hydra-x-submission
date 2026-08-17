@@ -60,6 +60,36 @@ INDEX_DIR = REPO_ROOT / "indexes"
 REGISTRY_DB = INDEX_DIR / "registry.sqlite3"
 FTS_DB = INDEX_DIR / "fts.sqlite3"
 
+# The corpus ships as a single row group holding all 511,962 documents, and a
+# point lookup has to decode a row group whole. Fetching one document therefore
+# costs four and a half seconds against the file as shipped — paid four times
+# per question, since on-demand ingestion enriches several candidates. Answering
+# spent longer scanning parquet than it did talking to the model.
+#
+# `scripts/71_repartition_corpus.py` writes a losslessly re-chunked copy here and
+# indexes it. The original is never modified, and it stays the source of truth
+# for bulk passes, which stream whole row groups and do not care.
+LOCATOR_PARQUET = INDEX_DIR / "documents-rowgroups.parquet"
+
+# The locator index lives apart from the id registry so the two can be rebuilt
+# independently. Re-chunking invalidates the row map and nothing else; the
+# registry holds 511,958 minted ids that must survive it.
+LOCATOR_DB = INDEX_DIR / "locator.sqlite3"
+
+
+def locator_parquet() -> Path:
+    """The file point lookups read: the re-chunked copy when it exists.
+
+    Falling back to the original keeps the system working before the
+    repartition has run — slowly, but working, which is the right failure.
+    """
+    return LOCATOR_PARQUET if LOCATOR_PARQUET.exists() else DOCUMENTS_PARQUET
+
+
+def locator_db() -> Path:
+    """The row map matching whichever parquet `locator_parquet` returns."""
+    return LOCATOR_DB if LOCATOR_PARQUET.exists() else REGISTRY_DB
+
 # --- HydraDB ----------------------------------------------------------------
 
 HYDRA_BOLT_URI = os.getenv("HYDRA_BOLT_URI", "bolt://127.0.0.1:7687")

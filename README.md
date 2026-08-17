@@ -157,11 +157,21 @@ collisions**.
 
 **Demo stability.** Ten consecutive rounds of the three demo questions, all
 clean: verdicts as expected, every citation validated against the graph, and the
-abstention citing nothing (`scripts/80_demo_check.py`). Latency p50 29.6s, p95
-45.6s.
+abstention citing nothing (`scripts/80_demo_check.py`). Latency p50 8.0s, p95
+12.4s.
 
-**Honest limits.** A cold question takes 25–40 seconds, because enriching
-documents during the request means live model calls; repeat questions are fast.
+That p50 was 29.6s until the corpus was re-chunked. The file ships as a single
+row group holding all 511,962 documents, and parquet decodes a row group whole,
+so fetching one document read the entire 1.4 GB file — 4.5 seconds, paid four
+times per question because on-demand ingestion enriches several candidates at
+once. Answering spent longer scanning parquet than talking to the model.
+`scripts/71_repartition_corpus.py` writes a lossless copy at 2,048 rows per group
+and indexes that: **4,465ms → 12ms per document fetch**, and the preload scan on
+the first question disappears entirely.
+
+**Honest limits.** A cold question — one reaching documents the graph has not
+seen — takes 25–40 seconds, because enriching them during the request means live
+model calls; repeat questions are fast.
 Answer-quality scores against the official evaluator are **not** reported — that
 harness was not run, and the retrieval numbers above are the measurements this
 project actually made.
@@ -191,7 +201,7 @@ round-trips a real query first, because a port is not proof.
 ## Verifying the claims above
 
 ```bash
-uv run pytest                             # 103 tests, 18 against the live engine
+uv run pytest                             # 115 tests, 18 against the live engine
 uv run python scripts/35_verify_gate.py   # 11 checks, read back from the graph
 uv run python scripts/55_conflicts.py     # contested facts + trust breakdown
 uv run python scripts/75_retrieval_eval.py --limit 470

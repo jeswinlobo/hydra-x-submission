@@ -71,6 +71,10 @@
   .claim { border-left: 2px solid var(--claim); padding: 6px 0 6px 12px;
            margin-bottom: 12px; }
   .claim .t { color: var(--dim); font-size: 13px; }
+  /* Examined evidence is deliberately quieter than supporting evidence: it is
+     what the system rejected, and it must not read as though it backed an
+     answer. A dashed rule rather than the solid claim rule says "considered". */
+  .examined .claim { border-left: 2px dashed var(--line); opacity: 0.62; }
   .quote { color: var(--muted); font-size: 12.5px; font-style: italic;
            margin-top: 4px; }
   .tabs { display: flex; gap: 4px; padding: 8px 10px 0; border-bottom: 1px solid var(--line); }
@@ -201,12 +205,21 @@ function renderAnswer() {
                   conflicting: "⚠ Conflicting" }[a] || a;
   const cites = (d.document_ids || []).map(x =>
     `<li class="cite">${esc(x)}</li>`).join("");
-  const claims = (d.claims || []).slice(0, 5).map(c => `
+  const card = c => `
     <div class="claim">
       <div class="t"><strong>${esc(c.subject)}</strong> — ${esc(c.predicate)} — ${esc(c.object)}</div>
       <div class="quote">“${esc((c.quote || "").slice(0, 150))}”</div>
       <div class="cite">${esc(c.dsid)}</div>
-    </div>`).join("");
+    </div>`;
+  const claims = (d.claims || []).slice(0, 5).map(card).join("");
+
+  // What an abstention looked at is shown apart from what an answer rests on.
+  // These are rendered from `examined`, never `claims`: the page used to fall
+  // back to whatever retrieval had gathered, so an abstention arrived under the
+  // heading "Supporting claims" with document ids beside it — reading as
+  // evidence for the answer the system had just declined to give.
+  const examined = (d.examined || []).slice(0, 5).map(card).join("");
+  const looked = (d.examined_documents || []).length;
 
   document.getElementById("answer").innerHTML = `
     <span class="badge ${a}">${label}</span>
@@ -219,12 +232,20 @@ function renderAnswer() {
     ${cites ? `<h3 style="font-size:12px;color:var(--muted);text-transform:uppercase">Citations</h3>
                <ul class="plain">${cites}</ul>` : ""}
     ${claims ? `<h3 style="font-size:12px;color:var(--muted);text-transform:uppercase;margin-top:16px">
-                 Supporting claims — every span verified verbatim in its source</h3>${claims}` : ""}`;
+                 Supporting claims — every span verified verbatim in its source</h3>${claims}` : ""}
+    ${examined ? `<h3 style="font-size:12px;color:var(--muted);text-transform:uppercase;margin-top:16px">
+                 Examined and not relied on — ${looked} document(s) reached, none supporting an answer</h3>
+                 <div class="examined">${examined}</div>` : ""}`;
 }
 
 function renderGraph() {
   const g = (current && current.evidence_graph) || { nodes: [], edges: [] };
-  if (!g.nodes.length) return `<div class="empty">No evidence subgraph — the answer cited nothing.</div>`;
+  if (!g.nodes.length) {
+    const looked = (current && (current.examined_documents || []).length) || 0;
+    return `<div class="empty">No evidence subgraph. The system abstained, so
+      there is no supported answer for a subgraph to stand behind${
+        looked ? ` — ${looked} document(s) were reached and none supported one` : ""}.</div>`;
+  }
   const cols = { Document: 60, Claim: 250, EvidenceSpan: 470 };
   const rows = {}; const pos = {};
   g.nodes.forEach(n => { rows[n.kind] = (rows[n.kind] || 0); pos[n.id] = { x: cols[n.kind] ?? 60, y: 34 + rows[n.kind] * 44 }; rows[n.kind]++; });

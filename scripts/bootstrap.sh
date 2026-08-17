@@ -59,14 +59,12 @@ step "indexing the corpus (511,962 documents, ~5 minutes)"
 uv run python scripts/70_register_corpus.py
 echo "  ok"
 
-step "building the document locator"
-uv run python - <<'PY'
-from tracegraph import config
-from tracegraph.parquet_reader import RowLocator
-locator = RowLocator.build(config.DOCUMENTS_PARQUET, config.REGISTRY_DB)
-print(f"  ok: {locator.build_report}")
-locator.close()
-PY
+# The corpus ships as one row group holding all 511,962 documents, and parquet
+# decodes a row group whole, so fetching one document reads the entire 1.4GB
+# file — four and a half seconds, four times per question. Re-chunking is a
+# lossless copy that turns that into a twelve-millisecond lookup.
+step "re-chunking the corpus and building the document locator"
+uv run python scripts/71_repartition_corpus.py
 
 # --- the graph ---------------------------------------------------------------
 

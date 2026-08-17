@@ -183,6 +183,39 @@ class Resolver:
             key for key, person in self.people.items() if tokens <= person.tokens
         )
 
+    def adopt(self, key: str, display_name: str, emails: Iterable[str],
+              domains: Iterable[str] = (), channels: Iterable[str] = ()) -> None:
+        """Take on a person the graph already holds.
+
+        Bulk loading observes every document at once, so by the time a surface
+        is resolved every identity in the batch exists. On-demand ingestion sees
+        one document, and a resolver built from that document alone knows only
+        the people it names — so `sam` would find no candidate and go
+        unresolved, even though the graph has known Sam Okafor since the last
+        question.
+
+        Adopting the graph's entities gives the single-document resolver the
+        same candidate pool the bulk pass had. The key is the entity's natural
+        key, so the id derived from it is the id already in the graph and an
+        adopted person resolves to the vertex that exists rather than a
+        duplicate beside it.
+        """
+        person = self.people.get(key)
+        if person is None:
+            person = Person(key=key, display_name=display_name.strip() or key)
+            self.people[key] = person
+        elif "@" in person.display_name and "@" not in display_name:
+            person.display_name = display_name.strip()
+
+        for email in emails:
+            email = email.casefold().strip()
+            if email:
+                person.emails.add(email)
+                self._by_email[email] = key
+        person.domains.update(d for d in domains if d)
+        person.channels.update(c for c in channels if c)
+        self._by_token_set[frozenset(person.tokens)].add(key)
+
     def merge_same_person(self) -> int:
         """Fold alternate addresses for one person into a single identity.
 

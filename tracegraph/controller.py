@@ -48,6 +48,9 @@ class ControllerResult:
     answerability: str
     confidence: float
     claims: list[dict] = field(default_factory=list)
+    # Evidence that was looked at but did not support an answer. Kept separate
+    # from `claims` so an abstention cannot be rendered as though it had support.
+    examined: list[dict] = field(default_factory=list)
     alternatives: list[dict] = field(default_factory=list)
     rejected_citations: list[str] = field(default_factory=list)
     rejected_spans: list[dict] = field(default_factory=list)
@@ -60,6 +63,7 @@ class ControllerResult:
             "answerability": self.answerability,
             "confidence": self.confidence,
             "claims": self.claims,
+            "examined": self.examined,
             "alternatives": self.alternatives,
             "hydradb_trace": self.trace,
         }
@@ -264,10 +268,21 @@ class AnswerController:
 
     def _abstain(self, question, reason, started, claims, rejected_spans,
                  rejected=None) -> ControllerResult:
+        """Refuse to answer, and carry nothing that reads as an answer.
+
+        An abstention used to return the claims retrieval had gathered, on the
+        reasoning that they were what the system looked at. But `claims` is the
+        field an interface renders as "supporting claims", each with a document
+        id beside it, so an abstention arrived on screen with citations under
+        it — which is precisely the impression abstaining exists to avoid.
+
+        What was examined and rejected belongs in `examined`, which no caller
+        mistakes for support.
+        """
         return ControllerResult(
             answer=f"The available evidence does not answer this question: {reason}.",
             document_ids=[], answerability=INSUFFICIENT, confidence=0.0,
-            claims=claims[:10], rejected_citations=rejected or [],
+            claims=[], examined=claims[:10], rejected_citations=rejected or [],
             rejected_spans=rejected_spans, trace=self._trace(started),
         )
 

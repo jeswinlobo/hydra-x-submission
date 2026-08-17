@@ -25,16 +25,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tracegraph.controller import AnswerController  # noqa: E402
+from tracegraph.demo import DEMO_QUESTIONS as DEMO  # noqa: E402
 from tracegraph.hydra_client import HydraClient  # noqa: E402
 from tracegraph.ingest import OnDemandIngestor  # noqa: E402
-
-# (question, expected answerability). The last one is unanswerable by design:
-# a demo that cannot show an honest refusal is showing half the system.
-DEMO = [
-    ("Which quantization profile caused the P95 latency regression?", "supported"),
-    ("What did Redwood commit to for SOC 2 and audit evidence?", "supported"),
-    ("What is the Q4 2029 revenue target for the Antarctic division?", "insufficient"),
-]
 
 
 def main() -> int:

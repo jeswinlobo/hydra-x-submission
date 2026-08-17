@@ -14,14 +14,25 @@ See docs/engine-notes.md for the probes these rules came from.
 
 from __future__ import annotations
 
+import logging
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Sequence
 
 import httpx
 from neo4j import Bookmarks, GraphDatabase
+from neo4j.exceptions import ServiceUnavailable, SessionExpired
 
 from . import config
+
+logger = logging.getLogger(__name__)
+
+# A connection that died in the pool is worth one more try; a query the engine
+# rejected is not. Two attempts cover the idle-connection case without turning a
+# real outage into a long stall.
+_TRANSIENT_RETRIES = 2
+_RETRY_BACKOFF_S = 0.25
 
 # Labels, relationship types, and property names cannot be parameterised in
 # Cypher, so anything interpolated into a statement is checked against this
@@ -128,6 +139,17 @@ class HydraClient:
         self._driver = GraphDatabase.driver(
             bolt_uri or config.HYDRA_BOLT_URI,
             auth=(config.HYDRA_BOLT_USER, self._token),
+            # A pooled connection that has sat idle can be dead at the far end
+            # without the pool knowing, and the first read on it fails with
+            # ServiceUnavailable rather than being retried. The server hits this
+            # whenever nobody asks a question for a few minutes — the status bar
+            # comes back "unreachable" against a database that is running fine.
+            #
+            # `liveness_check_timeout` makes the driver ping a connection idle
+            # longer than this before handing it out, which turns a dead
+            # connection into a new one instead of an error.
+            liveness_check_timeout=30.0,
+            max_connection_lifetime=600.0,
         )
         self._http = httpx.Client(
             base_url=http_url or config.HYDRA_HTTP_URL,
@@ -179,6 +201,34 @@ class HydraClient:
         return self._bolt_run(cypher, params, write=False)
 
     def _bolt_run(
+        self, cypher: str, params: dict[str, Any] | None, *, write: bool
+    ) -> list[dict]:
+        """Run one statement, retrying a connection that died under us.
+
+        Only the transport failures are retried — a dead pooled connection, an
+        expired session — never a query the engine rejected, which would fail
+        again identically and only hide the reason.
+
+        Retrying a write is safe here and would not be in general: every write
+        this system makes is a MERGE keyed on a deterministic id, so replaying
+        one converges on the same graph rather than duplicating anything. That
+        is the same property the loader's checkpoints rely on.
+        """
+        last: Exception | None = None
+        for attempt in range(_TRANSIENT_RETRIES + 1):
+            try:
+                return self._bolt_once(cypher, params, write=write)
+            except (ServiceUnavailable, SessionExpired) as exc:
+                last = exc
+                if attempt == _TRANSIENT_RETRIES:
+                    break
+                logger.warning(
+                    "bolt connection failed (%s); retrying %d/%d",
+                    type(exc).__name__, attempt + 1, _TRANSIENT_RETRIES)
+                time.sleep(_RETRY_BACKOFF_S * (attempt + 1))
+        raise last  # type: ignore[misc]
+
+    def _bolt_once(
         self, cypher: str, params: dict[str, Any] | None, *, write: bool
     ) -> list[dict]:
         with self._driver.session(

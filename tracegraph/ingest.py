@@ -19,11 +19,13 @@ slowly, while the lexical index carries corpus scale.
 
 from __future__ import annotations
 
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
 from . import config
+from .graph_resolve import GraphEvidence
 from .hydra_client import HydraClient
 from .ids import IdRegistry, edge_identity, node_identity
 from .llm import extract_claims
@@ -31,12 +33,14 @@ from .loader import upsert_edges, upsert_nodes
 from .parquet_reader import RowLocator
 from .parsers import normalise_content, parse_document
 from .parsers.base import PERSON
+from .resolve import METHOD_GRAPH_EVIDENCE, METHOD_UNRESOLVED, Resolver
 
 DOC = "Document"
 MENTION = "Mention"
 ENTITY = "Entity"
 CLAIM = "Claim"
 SPAN = "EvidenceSpan"
+CHANNEL = "Channel"
 
 
 @dataclass
@@ -51,6 +55,7 @@ class _Prepared:
     source_type: str = ""
     title: str = ""
     body: str = ""
+    channel: str | None = None
     mentions: list = field(default_factory=list)
     accepted: list = field(default_factory=list)
     rejected: list = field(default_factory=list)
@@ -63,6 +68,8 @@ class IngestReport:
     dsid: str
     already_present: bool = False
     mentions: int = 0
+    resolved: int = 0
+    unresolved: int = 0
     claims: int = 0
     spans: int = 0
     rejected_spans: int = 0
@@ -84,17 +91,63 @@ class OnDemandIngestor:
     """
 
     def __init__(self, client: HydraClient, run_id: str, *,
-                 extract: bool = True, max_body: int = 8000) -> None:
+                 extract: bool = True, max_body: int = 8000,
+                 resolve: bool = True) -> None:
         self.client = client
         self.run_id = run_id
         self.extract = extract
+        self.resolve = resolve
         self.max_body = max_body
         self.registry = IdRegistry()
-        self.locator = RowLocator(config.DOCUMENTS_PARQUET, config.REGISTRY_DB)
+        self.locator = RowLocator(config.locator_parquet(), config.locator_db())
         self._present: set[str] = set()
+        self._resolver: Resolver | None = None
+        self._adopted: set[str] = set()
+        self._lock = threading.RLock()
 
     def close(self) -> None:
         self.locator.close()
+
+    # --- identity ------------------------------------------------------------
+
+    def resolver(self) -> Resolver:
+        """A resolver carrying every person the graph already knows.
+
+        Built once and then kept current, because the candidate pool is what
+        makes single-document resolution work at all: a resolver that has seen
+        only the document in front of it cannot match `sam` to anybody, since
+        the person called Sam was established by some other document entirely.
+        """
+        if self._resolver is None:
+            self._resolver = Resolver()
+            self._adopt_known()
+        return self._resolver
+
+    def _adopt_known(self) -> int:
+        """Pull entities out of the graph and into the resolver.
+
+        Bounded, and deliberately so — this is the candidate pool for one
+        document's surfaces, not a mirror of the graph. Entities arrive in a
+        stable order so the pool does not shift underneath a repeated question.
+        """
+        rows = self.client.bolt_read(
+            "MATCH (e:Entity) WHERE e.run_id = $r "
+            "RETURN e.key AS key, e.name AS name, e.emails AS emails, "
+            "e.domains AS domains ORDER BY e.key LIMIT 4000",
+            {"r": self.run_id})
+        adopted = 0
+        for row in rows:
+            key = row["key"]
+            if not key or key in self._adopted:
+                continue
+            self._resolver.adopt(
+                key, row["name"] or key,
+                [e for e in (row["emails"] or "").split(";") if e],
+                [d for d in (row["domains"] or "").split(";") if d],
+            )
+            self._adopted.add(key)
+            adopted += 1
+        return adopted
 
     def is_present(self, dsid: str) -> bool:
         """Is this document already enriched?
@@ -147,6 +200,7 @@ class OnDemandIngestor:
         parsed = parse_document(dsid, prepared.source_type, prepared.title,
                                 record.get("content") or "")
         prepared.mentions = parsed.verified_mentions(body)[:400]
+        prepared.channel = parsed.attributes.get("channel")
         prepared.seconds = time.perf_counter() - started
         return prepared
 
@@ -168,7 +222,19 @@ class OnDemandIngestor:
         return self._extract(self._read(dsid))
 
     def _commit(self, prepared: _Prepared) -> IngestReport:
-        """Write what was prepared. Serialised, because the graph writes are."""
+        """Write what was prepared.
+
+        Serialised on purpose. The API shares one ingestor across its worker
+        threads, and the resolver, the adopted-key set and the id registry are
+        all mutated here; two questions committing at once would interleave
+        their identity decisions. Writing is the cheap half — the model call it
+        follows already ran in parallel — so there is nothing to gain by
+        overlapping it and a resolution to lose.
+        """
+        with self._lock:
+            return self._commit_locked(prepared)
+
+    def _commit_locked(self, prepared: _Prepared) -> IngestReport:
         started = time.perf_counter()
         dsid = prepared.dsid
         if prepared.error and not prepared.accepted and not prepared.mentions:
@@ -190,16 +256,22 @@ class OnDemandIngestor:
 
         # --- structure -------------------------------------------------------
         mention_rows, mentioned_in = [], []
+        mention_ids: dict[tuple[int, int], int] = {}
         for mention in prepared.mentions:
             identity = node_identity(
                 MENTION, f"{dsid}:{mention.start}:{mention.end}")
             pending.append(identity)
+            mention_ids[(mention.start, mention.end)] = identity.id
             mention_rows.append({
                 "vertex": identity.id, "surface": mention.surface[:300],
                 "normalised": mention.surface.casefold()[:300],
                 "kind": mention.kind, "role": mention.role,
                 "start": mention.start, "end": mention.end,
                 "dsid": dsid, "run_id": self.run_id,
+                # Written pending and overwritten by the resolution pass below.
+                # A mention that stays pending is a bug, not a state: every one
+                # has to end resolved or explicitly unresolved, because an
+                # absent edge cannot otherwise be told from a failed write.
                 "status": "pending", "method": "", "candidates": 0, "reason": "",
             })
             edge = edge_identity("MENTIONED_IN", identity.id, doc_identity.id)
@@ -219,6 +291,15 @@ class OnDemandIngestor:
                          job=f"ondemand-mi:{dsid}", source_label=MENTION,
                          target_label=DOC, properties=["role", "run_id"])
         report.mentions = len(mention_rows)
+
+        # --- identity --------------------------------------------------------
+        if mention_rows and self.resolve:
+            try:
+                report.resolved, report.unresolved = self._resolve_mentions(
+                    prepared, doc_identity.id, mention_ids, pending)
+            except Exception as exc:  # noqa: BLE001 - a question must still get an answer
+                report.error = (report.error or
+                                f"resolution failed: {exc}"[:200])
 
         # --- claims ----------------------------------------------------------
         if prepared.accepted:
@@ -279,6 +360,244 @@ class OnDemandIngestor:
         self._present.add(dsid)
         report.seconds = prepared.seconds + (time.perf_counter() - started)
         return report
+
+    def _resolve_mentions(self, prepared: _Prepared, doc_id: int,
+                          mention_ids: dict[tuple[int, int], int],
+                          pending: list) -> tuple[int, int]:
+        """Decide who each mention refers to, and record the decision.
+
+        On-demand ingestion used to stop after writing mentions, leaving every
+        one of them `pending` — which is not a resolution outcome but the
+        absence of one, and it meant the identity panel went blank for exactly
+        the documents a question had just reached. The verification gate caught
+        it as 142 pending mentions across sixteen documents.
+
+        The tiers are the bulk loader's, in the same order and with the same
+        recorded evidence: an address resolves outright, a unique token subset
+        resolves by lookup, and anything still ambiguous goes to the graph,
+        which separates candidates by shared context rather than by spelling. A
+        surface the graph cannot separate is written `unresolved` with its
+        candidate count and the reason — a recorded decision, not a gap.
+        """
+        resolver = self.resolver()
+        dsid = prepared.dsid
+        channel = prepared.channel
+
+        # The document's own people first: an address in this document creates
+        # an identity that surfaces further down the same document can match.
+        resolver.observe(dsid, prepared.source_type, prepared.mentions,
+                         channel=channel)
+        resolver.merge_same_person()
+
+        direct, ambiguous = [], []
+        for mention in prepared.mentions:
+            outcome = resolver.resolve_mention(
+                mention, dsid, channel, use_graph_tier=False)
+            (direct if outcome.resolved else ambiguous).append((mention, outcome))
+
+        # Entities for every person now known to this document, so a
+        # RESOLVES_TO edge always has a vertex to land on. The id comes from the
+        # person's natural key, so a person the graph already holds is written
+        # over rather than duplicated beside.
+        touched = {o.person_key for _, o in direct if o.person_key}
+        for _, outcome in ambiguous:
+            touched.update(outcome.candidates)
+        entity_ids: dict[str, int] = {}
+        entity_rows = []
+        for key in sorted(touched):
+            person = resolver.people.get(key)
+            if person is None:
+                continue
+            identity = node_identity(ENTITY, key)
+            pending.append(identity)
+            entity_ids[key] = identity.id
+            entity_rows.append({
+                "vertex": identity.id, "key": key, "name": person.display_name,
+                "kind": PERSON,
+                "emails": ";".join(sorted(person.emails))[:400],
+                "domains": ";".join(sorted(person.domains))[:200],
+                "run_id": self.run_id,
+            })
+        if entity_rows:
+            upsert_nodes(self.client, ENTITY, entity_rows,
+                         job=f"ondemand-e:{dsid}",
+                         properties=["key", "name", "kind", "emails", "domains",
+                                     "run_id"])
+            self._adopted.update(entity_ids)
+
+        # The channel, and the participation the graph tier reads. Participation
+        # has to be written before scoring runs or the evidence is not there yet.
+        channel_id = None
+        if channel:
+            identity = node_identity(CHANNEL, channel)
+            pending.append(identity)
+            channel_id = identity.id
+            upsert_nodes(self.client, CHANNEL,
+                         [{"vertex": channel_id, "name": channel,
+                           "run_id": self.run_id}],
+                         job=f"ondemand-ch:{dsid}", properties=["name", "run_id"])
+
+        resolves, participation, statuses = [], {}, []
+        for mention, outcome in direct:
+            mid = mention_ids.get((mention.start, mention.end))
+            target = entity_ids.get(outcome.person_key or "")
+            if mid is None or target is None:
+                continue
+            edge = edge_identity("RESOLVES_TO", mid, target)
+            pending.append(edge)
+            resolves.append({
+                "src": mid, "dst": target, "eid": edge.id,
+                "method": outcome.method, "confidence": outcome.confidence,
+                "evidence": outcome.evidence[:400],
+                "candidates": len(outcome.candidates), "run_id": self.run_id,
+            })
+            statuses.append({
+                "vertex": mid, "status": "resolved", "method": outcome.method,
+                "candidates": len(outcome.candidates),
+                "reason": outcome.evidence[:300],
+            })
+            if channel_id is not None:
+                key = (outcome.person_key, channel)
+                if key not in participation:
+                    p = edge_identity("PARTICIPATED_IN", target, channel_id)
+                    pending.append(p)
+                    participation[key] = {
+                        "src": target, "dst": channel_id, "eid": p.id,
+                        "run_id": self.run_id,
+                    }
+
+        if resolves:
+            upsert_edges(self.client, "RESOLVES_TO", resolves,
+                         job=f"ondemand-r:{dsid}", source_label=MENTION,
+                         target_label=ENTITY,
+                         properties=["method", "confidence", "evidence",
+                                     "candidates", "run_id"])
+        if participation:
+            upsert_edges(self.client, "PARTICIPATED_IN",
+                         list(participation.values()),
+                         job=f"ondemand-p:{dsid}", source_label=ENTITY,
+                         target_label=CHANNEL, properties=["run_id"])
+
+        # --- the ambiguous ones, decided by the graph ------------------------
+        evidence = GraphEvidence(self.client, self.run_id)
+        graph_resolves, candidate_edges = [], []
+        for mention, outcome in ambiguous:
+            mid = mention_ids.get((mention.start, mention.end))
+            if mid is None:
+                continue
+            candidates = {
+                entity_ids[key]: resolver.people[key].display_name
+                for key in outcome.candidates if key in entity_ids
+            }
+            if not candidates:
+                statuses.append({
+                    "vertex": mid, "status": "unresolved",
+                    "method": METHOD_UNRESOLVED, "candidates": 0,
+                    "reason": (outcome.evidence or "no candidate")[:300],
+                })
+                continue
+
+            decision = evidence.score_candidates(candidates, doc_id, channel_id)
+
+            # Every candidate the graph weighed is recorded, so a rejected one
+            # can be inspected rather than inferred from its absence.
+            for entry in decision.scored[:8]:
+                e = edge_identity("CANDIDATE_FOR", mid, entry.entity_id)
+                pending.append(e)
+                candidate_edges.append({
+                    "src": mid, "dst": entry.entity_id, "eid": e.id,
+                    "score": entry.score, "co_occurrences": entry.co_occurrences,
+                    "participations": entry.participations,
+                    "run_id": self.run_id,
+                })
+
+            if decision.winner is None:
+                statuses.append({
+                    "vertex": mid, "status": "unresolved",
+                    "method": METHOD_UNRESOLVED, "candidates": len(candidates),
+                    "reason": (decision.reason or "")[:300],
+                })
+                continue
+
+            edge = edge_identity("RESOLVES_TO", mid, decision.winner.entity_id)
+            pending.append(edge)
+            confidence = round(0.5 + 0.45 * decision.margin, 3)
+            graph_resolves.append({
+                "src": mid, "dst": decision.winner.entity_id, "eid": edge.id,
+                "method": METHOD_GRAPH_EVIDENCE, "confidence": confidence,
+                "evidence": decision.reason[:400], "candidates": len(candidates),
+                "run_id": self.run_id,
+            })
+            statuses.append({
+                "vertex": mid, "status": "resolved",
+                "method": METHOD_GRAPH_EVIDENCE, "candidates": len(candidates),
+                "reason": decision.reason[:300],
+            })
+
+        if graph_resolves:
+            upsert_edges(self.client, "RESOLVES_TO", graph_resolves,
+                         job=f"ondemand-gr:{dsid}", source_label=MENTION,
+                         target_label=ENTITY,
+                         properties=["method", "confidence", "evidence",
+                                     "candidates", "run_id"])
+        if candidate_edges:
+            upsert_edges(self.client, "CANDIDATE_FOR", candidate_edges,
+                         job=f"ondemand-cf:{dsid}", source_label=MENTION,
+                         target_label=ENTITY,
+                         properties=["score", "co_occurrences",
+                                     "participations", "run_id"])
+
+        # Statuses last, so no mention is left carrying `pending` — the state
+        # that means "nobody looked", which is the one thing that must not
+        # survive a completed ingest.
+        if statuses:
+            upsert_nodes(self.client, MENTION, statuses,
+                         job=f"ondemand-st:{dsid}",
+                         properties=["status", "method", "candidates", "reason"])
+
+        resolved = sum(1 for s in statuses if s["status"] == "resolved")
+        return resolved, len(statuses) - resolved
+
+    def pending_documents(self, limit: int = 200) -> list[str]:
+        """Documents holding a mention nobody decided about."""
+        rows = self.client.bolt_read(
+            "MATCH (m:Mention) WHERE m.run_id = $r AND m.status = 'pending' "
+            "RETURN DISTINCT m.dsid AS dsid LIMIT $limit",
+            {"r": self.run_id, "limit": limit})
+        return [row["dsid"] for row in rows]
+
+    def repair_pending(self, limit: int = 200) -> list[IngestReport]:
+        """Resolve mentions left pending by an earlier, incomplete ingest.
+
+        The document is re-read and its surfaces re-decided. Nothing is
+        duplicated by this: mention and entity ids are derived from the document
+        and the person's natural key, so a repair writes over the same vertices
+        the first pass created rather than beside them.
+        """
+        reports = []
+        for dsid in self.pending_documents(limit):
+            with self._lock:
+                prepared = self._read(dsid)
+                report = IngestReport(dsid, error=prepared.error)
+                if prepared.error or not prepared.mentions:
+                    reports.append(report)
+                    continue
+                doc_identity = node_identity(DOC, dsid)
+                mention_ids = {
+                    (m.start, m.end): node_identity(
+                        MENTION, f"{dsid}:{m.start}:{m.end}").id
+                    for m in prepared.mentions
+                }
+                pending: list = []
+                try:
+                    report.resolved, report.unresolved = self._resolve_mentions(
+                        prepared, doc_identity.id, mention_ids, pending)
+                except Exception as exc:  # noqa: BLE001
+                    report.error = f"resolution failed: {exc}"[:200]
+                report.mentions = len(mention_ids)
+                self.registry.register_many(pending)
+            reports.append(report)
+        return reports
 
     def ingest_many(self, dsids: list[str], *, budget: int = 6) -> list[IngestReport]:
         """Enrich up to `budget` documents that are not already present.

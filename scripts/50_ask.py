@@ -14,37 +14,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import pyarrow.parquet as pq  # noqa: E402
-
-from tracegraph import config  # noqa: E402
 from tracegraph.controller import AnswerController  # noqa: E402
+from tracegraph.demo import QUESTIONS as DEMO_QUESTIONS  # noqa: E402
 from tracegraph.hydra_client import HydraClient  # noqa: E402
 from tracegraph.ingest import OnDemandIngestor  # noqa: E402
-from tracegraph.parsers import normalise_content  # noqa: E402
-
-DEMO_QUESTIONS = [
-    "What is the rollback procedure for the perf-canary service?",
-    "Which quantization profile caused the latency regression?",
-    "What is the Q4 2029 revenue target for the Antarctic division?",
-]
-
-
-def load_bodies(client: HydraClient, run_id: str) -> dict[str, str]:
-    """Bodies for the run's documents, so spans can be re-checked at answer time."""
-    rows = client.bolt_read(
-        "MATCH (d:Document) WHERE d.run_id = $r RETURN d.dsid AS dsid", {"r": run_id})
-    wanted = {row["dsid"] for row in rows}
-    parquet = pq.ParquetFile(config.DOCUMENTS_PARQUET)
-    bodies: dict[str, str] = {}
-    for batch in parquet.iter_batches(batch_size=4000, columns=["doc_id", "content"]):
-        data = batch.to_pydict()
-        for i in range(batch.num_rows):
-            dsid = data["doc_id"][i]
-            if dsid in wanted:
-                bodies[dsid] = normalise_content(data["content"][i])
-        if len(bodies) == len(wanted):
-            break
-    return bodies
 
 
 def show(result, question: str) -> None:
@@ -64,6 +37,16 @@ def show(result, question: str) -> None:
         for claim in result.claims[:4]:
             print(f"  {claim['subject']} — {claim['predicate']} — {claim['object']}")
             print(f"    \"{claim['quote'][:110]}\"")
+
+    # Shown apart from supporting claims, and only ever on an abstention. These
+    # are what the system read and declined to rely on; printing them under the
+    # same heading as support would make a refusal read like an answer.
+    if result.examined:
+        docs = sorted({c["dsid"] for c in result.examined})
+        print(f"\nexamined and not relied on ({len(docs)} document(s) reached, "
+              "none supporting an answer):")
+        for claim in result.examined[:3]:
+            print(f"  {claim['subject']} — {claim['predicate']} — {claim['object']}")
 
     if result.rejected_citations:
         print(f"\nrejected citations: {result.rejected_citations}")
@@ -98,11 +81,14 @@ def main() -> int:
         # questions reach them.
         run_id = run_id or "ondemand"
 
-        bodies = load_bodies(client, run_id)
+        # Bodies are fetched per document through the ingestor's row locator as
+        # the controller needs them, so this starts empty and fills with the
+        # handful of documents each question actually reaches.
+        bodies: dict[str, str] = {}
         ingestor = OnDemandIngestor(client, run_id)
         controller = AnswerController(client, run_id, ingestor=ingestor)
 
-        questions = DEMO_QUESTIONS if args.demo else [" ".join(args.question)]
+        questions = list(DEMO_QUESTIONS) if args.demo else [" ".join(args.question)]
         if not any(q.strip() for q in questions):
             print("give a question, or --demo", file=sys.stderr)
             return 1

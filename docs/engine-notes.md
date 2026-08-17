@@ -138,6 +138,39 @@ Practical rules that follow:
   full corpus registered without a single collision, so the id scheme scales
   even where the label index does not.
 
+### Counting a relationship type costs what its anchor label costs
+
+`count(*)` over a relationship pattern is not a lookup on an edge index. The
+engine anchors on one endpoint's label and expands every vertex under it, so the
+price is set by the anchor rather than by the number of edges returned. Measured
+against the same graph:
+
+| pattern | edges | time |
+|---|---|---|
+| `(:Claim)-[:CONFLICTS_WITH]->(:Claim)` | 23 | 15 ms |
+| `(:Entity)-[:PARTICIPATED_IN]->(:Channel)` | 52 | 30 ms |
+| `(:Document)-[:ASSERTS]->(:Claim)` | 1,326 | 946 ms |
+| `(:Mention)-[:RESOLVES_TO]->(:Entity)` | 4,841 | 3,886 ms |
+| `(:Mention)-[:CANDIDATE_FOR]->(:Entity)` | 11,691 | 8,241 ms |
+
+The two slow ones are anchored on `Mention`, of which there were 8,889.
+Reversing the pattern to anchor on `Entity` (778 vertices) does **not** help —
+8,693 ms, within noise of the original — so the planner is not choosing the
+cheaper side.
+
+Dropping the labels to force a relationship scan is worse than slow, it does not
+complete:
+
+```
+MATCH ()-[e:CANDIDATE_FOR]->() RETURN count(*)
+→ cypher_precomputed_cross_join exceeded query timeout after 29999 ms
+```
+
+So both endpoints must carry a label — the same rule the existence checks
+follow, for a different reason — and a status endpoint should not count
+relationships anchored on a label that grows with ingestion. `/api/status`
+omits those two by default and takes them behind `?full=1`.
+
 ### Measured throughput
 
 5,000 nodes in 0.26 s — **~19,000 rows/second** at a batch size of 1000, steady
