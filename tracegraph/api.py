@@ -45,13 +45,22 @@ def client() -> HydraClient:
     return _state["client"]
 
 
+DEFAULT_RUN = "ondemand"
+
+
 def run_id() -> str:
+    """The run this session reads and writes.
+
+    An empty graph is a starting state, not an error. Documents are enriched
+    when questions reach them, so a fresh install with nothing preloaded — which
+    is what `bootstrap.sh --fast` leaves — has to be able to answer its first
+    question and grow from there. Refusing to start until something was
+    preloaded would put the system back to only knowing a curated slice.
+    """
     if _state["run_id"] is None:
         rows = client().bolt_read(
             "MATCH (d:Document) RETURN d.run_id AS run_id ORDER BY run_id DESC LIMIT 1")
-        if not rows:
-            raise HTTPException(503, "no ingested run; run scripts/30_load_slice.py")
-        _state["run_id"] = rows[0]["run_id"]
+        _state["run_id"] = rows[0]["run_id"] if rows else DEFAULT_RUN
     return _state["run_id"]
 
 
@@ -66,6 +75,11 @@ def bodies() -> dict[str, str]:
             "MATCH (d:Document) WHERE d.run_id = $r RETURN d.dsid AS dsid",
             {"r": run_id()})
         wanted = {row["dsid"] for row in rows}
+        if not wanted:
+            # Nothing preloaded. On-demand ingestion supplies bodies for the
+            # documents a question actually reaches.
+            _state["bodies"] = {}
+            return _state["bodies"]
         loaded = {}
         for doc in iter_documents(columns=["doc_id", "content"]):
             if doc["doc_id"] in wanted:

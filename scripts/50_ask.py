@@ -19,6 +19,7 @@ import pyarrow.parquet as pq  # noqa: E402
 from tracegraph import config  # noqa: E402
 from tracegraph.controller import AnswerController  # noqa: E402
 from tracegraph.hydra_client import HydraClient  # noqa: E402
+from tracegraph.ingest import OnDemandIngestor  # noqa: E402
 from tracegraph.parsers import normalise_content  # noqa: E402
 
 DEMO_QUESTIONS = [
@@ -93,12 +94,13 @@ def main() -> int:
             rows = client.bolt_read(
                 "MATCH (d:Document) RETURN d.run_id AS run_id ORDER BY run_id DESC LIMIT 1")
             run_id = rows[0]["run_id"] if rows else None
-        if not run_id:
-            print("no ingested run found", file=sys.stderr)
-            return 1
+        # An empty graph is a starting state: documents are enriched when
+        # questions reach them.
+        run_id = run_id or "ondemand"
 
         bodies = load_bodies(client, run_id)
-        controller = AnswerController(client, run_id)
+        ingestor = OnDemandIngestor(client, run_id)
+        controller = AnswerController(client, run_id, ingestor=ingestor)
 
         questions = DEMO_QUESTIONS if args.demo else [" ".join(args.question)]
         if not any(q.strip() for q in questions):
