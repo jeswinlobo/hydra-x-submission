@@ -86,6 +86,10 @@ parallel edge. `MERGE` keyed on the deterministic edge id is what makes replay
 safe. *(cypher-compat.md says an `UNWIND MATCH` "must end in `RETURN` or
 `DELETE`"; the engine accepts `MERGE … SET`, and the loader relies on it.)*
 
+A `SET` value inside an `UNWIND` must come off the row map. A literal is
+rejected with `UNWIND relationship SET values must read from the row map`, so a
+constant is passed as a column rather than written into the statement.
+
 Property values are scalars only — `UNWIND row 0 field tags must be scalar`.
 Lists, and therefore aliases, evidence lists, and multi-valued attributes, are
 modelled as nodes and edges. `2**63 - 1` round-trips through Bolt exactly, so
@@ -231,6 +235,31 @@ Two syntactic constraints on the procedures, both discovered the hard way:
 
 A bulk `DETACH DELETE` over thousands of nodes also exceeds the transaction
 budget (`cypher_delete_ver…`); delete in bounded passes.
+
+### Deleting a relationship inverts the naming rule
+
+Everywhere else, a node carrying a label must be named. Relationship deletion
+through `UNWIND` requires the opposite — the endpoints must be **anonymous**:
+
+```cypher
+UNWIND $rows AS row MATCH ()-[e:RESOLVES_TO {id: row.eid}]->() DELETE e   ✓
+```
+
+Naming them is rejected with `UNWIND relationship property DELETE requires
+anonymous endpoints`, and moving the id into a `WHERE` is rejected too — the id
+has to sit in the relationship pattern. Both probed directly; the error text
+above is the engine's own.
+
+A relationship's `id` is also **not readable**: `RETURN r.id` is rejected with
+`unbound variable r`, while `r.method` and every other property on the same
+relationship return fine. So an edge cannot be deleted by reading its id back
+out of the graph.
+
+It does not need to be. Every edge id is derived deterministically from its type
+and its two endpoints, so the id of an edge to remove is recomputed from the
+endpoints a `MATCH` does return. That is what makes a resolution decision
+revisable at all — `scripts/37_rebuild_resolution.py` deletes superseded
+`RESOLVES_TO` edges this way.
 
 ## Read clauses confirmed working
 

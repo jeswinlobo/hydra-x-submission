@@ -3,10 +3,12 @@
 **An enterprise truth debugger on HydraDB.**
 
 Half a million documents from nine business tools disagree with each other. The
-same person appears as `sam`, `Sam Carter`, and `sam.carter@dataforge.ai`. One
-employee holds seventeen different job titles depending on which email you read.
-Ask a question and a search engine will hand you a document; it will not tell you
-whether the document is right, who else contradicts it, or how it knows.
+same person appears as `sam`, `Sam Carter`, and `sam.carter@dataforge.ai` — and
+`sam` alone has nineteen plausible referents. One employee, Marissa Cole, carries
+ten different job titles depending on which document you read, and two different
+people named Priya Sharma work at two different companies. Ask a question and a
+search engine will hand you a document; it will not tell you whether the document
+is right, who else contradicts it, or how it knows.
 
 TraceGraph answers questions over the corpus and shows its work: which entities
 and claims are connected, which sources support or contradict them, and the exact
@@ -20,11 +22,10 @@ Context & Ontology.
 
 ## What it does
 
-Ask anything about the corpus. Retrieval searches all **511,962 rows —
-511,958 distinct documents**, four doc_ids being exact duplicates, deduplicated
-on ingest;
-whatever it reaches is parsed, resolved, and extracted into the graph during the
-request and stays there for later questions.
+Ask anything about the corpus. Retrieval searches all **511,962 rows** — 511,958
+distinct documents, four doc_ids being exact duplicates that are deduplicated on
+ingest — and whatever it reaches is parsed, resolved, and extracted into the
+graph during the request, then stays there for later questions.
 
 ```
 $ ./scripts/60_serve.sh          # → http://127.0.0.1:8000
@@ -52,7 +53,7 @@ The graph is not a place results are filed after the fact. Three things are
 decided by traversal, and none of them survives if HydraDB is removed.
 
 **Entity resolution.** Slack is 55.8% of the corpus and its speakers are bare
-first names. `sam` has sixteen plausible referents; `alex` has forty-three.
+first names. `sam` has nineteen plausible referents; `alex` has forty-eight.
 String similarity cannot separate them. So participation is written into the
 graph first — who speaks in which channel, which mention sits in which document
 — and candidates are then scored by traversals over that structure:
@@ -67,11 +68,31 @@ MATCH (e:Entity {id: $eid})-[:PARTICIPATED_IN]->(c:Channel {id: $cid})
 RETURN count(*) AS n
 ```
 
-On the loaded slice this decided **592 surfaces** that string matching cannot —
-`alex` resolved to Alex Chen over 35 competitors. Re-check with
-`scripts/35_verify_gate.py`, which reads the count back out of the graph. Where the graph does not separate the candidates, the mention stays
-unresolved with its candidate set recorded, because a wrong merge is worse than
+On the loaded slice this decided **666 surfaces** that string matching cannot —
+`alex` resolved to Alex Chen over 47 competitors, at 0.95 confidence. Re-check
+with `scripts/35_verify_gate.py`, which reads the count back out of the graph.
+Where the graph does not separate the candidates the mention stays unresolved
+with its candidate set recorded — 1,640 do — because a wrong merge is worse than
 an honest "cannot tell".
+
+**Resolution is judged in both directions, so it refuses in both.** Splitting one
+person into many is the obvious failure; fusing two people into one is the
+quieter and worse one, because it produces a confident answer attributed to
+somebody who never said it. A shared full name is therefore not sufficient to
+merge — the identities must also share an organisational root:
+
+| | |
+|---|---|
+| `grace@redwood.com` + `grace.oconnor@redwood.ai` + `grace@redwoodinference.com` | one Grace O'Connor, 14 addresses |
+| `priya@mediloop.com` + `priya.sharma@procureco.com` | two Priya Sharmas |
+
+Getting that wrong is not hypothetical: an earlier rule merged on name alone and
+put 76 identities across unrelated companies, collecting 366 mentions between
+them — Elena Rossi at cardiotech.com absorbed Elena Rossi at microsoft.com.
+`scripts/37_rebuild_resolution.py` re-decides every identity in the graph and
+**deletes** the edges the old rule produced, which the engine permits only
+through a form documented in `docs/engine-notes.md`. It is idempotent: a second
+run finds nothing to change.
 
 **Provenance.** Claims and evidence spans are nodes, not properties, so a span
 can be inspected on its own and one span can support several claims:
@@ -220,9 +241,10 @@ round-trips a real query first, because a port is not proof.
 ## Verifying the claims above
 
 ```bash
-uv run pytest                             # 136 tests, 18 against the live engine
+uv run pytest                             # 138 tests, 20 against the live engine
 uv run python scripts/35_verify_gate.py   # 11 checks, read back from the graph
 uv run python scripts/36_repair_graph.py  # audit identities and undecided mentions
+uv run python scripts/37_rebuild_resolution.py  # re-decide every identity, report drift
 uv run python scripts/75_retrieval_eval.py --limit 470
 ```
 

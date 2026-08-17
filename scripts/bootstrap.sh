@@ -90,6 +90,11 @@ if [[ $FAST -eq 0 ]]; then
 
   step "detecting conflicts"
   uv run python scripts/55_conflicts.py --show 0
+
+  # Reconciles the graph with the current resolution rule. A no-op on a fresh
+  # build; it matters when the rule has moved since the graph was written.
+  step "reconciling identity decisions"
+  uv run python scripts/37_rebuild_resolution.py --apply
 else
   echo
   echo "  --fast: skipping the slice. Questions still work — documents are"

@@ -33,8 +33,8 @@ built on a superseded source, which is worse than no answer.
 
 Track 1 names the hard part exactly: entity resolution and ontology alignment.
 In this corpus that is not incidental difficulty. Slack is 55.8% of the
-documents and its speakers are bare first names; `sam` has sixteen plausible
-referents and `alex` has forty-three. No amount of string similarity separates
+documents and its speakers are bare first names; `sam` has nineteen plausible
+referents and `alex` has forty-eight. No amount of string similarity separates
 them.
 
 ## What you built
@@ -72,10 +72,18 @@ three capabilities disappear entirely without it.
 graph first — who speaks in which channel, which mention sits in which document
 — and ambiguous surfaces are then scored by traversals over that structure:
 co-occurrence in the same document at two hops, participation in the same
-channel at one. On the loaded slice this decided **592 surfaces
-queries to the engine**, including `alex` → Alex Chen over 42 competing
-candidates. Where the graph does not separate candidates, the mention stays
-unresolved with its candidate set recorded as `CANDIDATE_FOR` edges.
+channel at one. On the loaded slice this decided **666 surfaces** that string
+matching cannot, including `alex` → Alex Chen over 47 competing candidates at
+0.95 confidence. Where the graph does not separate candidates, the mention stays
+unresolved with its candidate set recorded as `CANDIDATE_FOR` edges — 1,640 of
+them keep a competing set rather than being guessed at.
+
+Merging is equally a refusal. Two people sharing a full name are folded together
+only when they also share an organisational root, so Grace O'Connor's fourteen
+Redwood spellings become one identity while Priya Sharma at mediloop.com and
+Priya Sharma at procureco.com stay two. `scripts/37_rebuild_resolution.py`
+re-decides every identity in the graph and deletes the edges a superseded rule
+produced.
 
 **2. Provenance and conflict topology.**
 `Document -[:ASSERTS]-> Claim -[:SUPPORTED_BY]-> EvidenceSpan`, with
@@ -116,8 +124,8 @@ Evidence discipline is measured, not asserted: of 505 claims produced in a pilot
 batch, **62 (12%) cited evidence not appearing verbatim in the source and were
 rejected**.
 
-Ingestion runs at ~20,000 nodes/second; registering 511,958 document ids produced
-zero collisions. 136 tests pass, 18 of them against the live engine.
+Ingestion runs at ~19,000 nodes/second; registering 511,958 document ids produced
+zero collisions. 138 tests pass, 20 of them against the live engine.
 
 ## Team members and contributions
 

@@ -340,3 +340,76 @@ def test_ingest_throughput(bolt, run_scope, capsys):
     with capsys.disabled():
         print(f"\n  ingest: {len(rows) / elapsed:,.0f} rows/s "
               f"({len(rows)} rows in {elapsed:.3f}s)")
+
+
+# --- Revising a decision ------------------------------------------------------
+
+
+def test_relationship_delete_requires_anonymous_endpoints(bolt, run_scope, upsert_nodes):
+    """Deleting an edge inverts the naming rule the rest of this suite pins.
+
+    Everywhere else a node carrying a label must be named. Relationship deletion
+    through `UNWIND` demands the opposite, and getting it wrong is a syntax
+    error rather than a silent no-op — so the working form is pinned here.
+
+    This is what makes an identity decision revisable:
+    `scripts/37_rebuild_resolution.py` removes superseded `RESOLVES_TO` edges
+    exactly this way.
+    """
+    label = run_scope.label("DelNode")
+    src = run_scope.node_id(label, "src")
+    dst = run_scope.node_id(label, "dst")
+    eid = run_scope.edge_id("SUPERSEDED", src, dst)
+    upsert_nodes(label, [{"vertex": src, "name": "a"}, {"vertex": dst, "name": "b"}])
+    bolt.run(
+        "UNWIND $rows AS row "
+        f"MATCH (s:{label} {{id: row.src}}), (d:{label} {{id: row.dst}}) "
+        "MERGE (s)-[r:SUPERSEDED {id: row.eid}]->(d)",
+        {"rows": [{"src": src, "dst": dst, "eid": eid}]},
+    )
+    count = f"MATCH (s:{label})-[r:SUPERSEDED]->(d:{label}) RETURN count(*) AS n"
+    assert bolt.run(count)[0]["n"] == 1
+
+    # Named endpoints are rejected outright.
+    with pytest.raises(Neo4jError):
+        bolt.run(
+            "UNWIND $rows AS row "
+            f"MATCH (s:{label} {{id: row.src}})-[e:SUPERSEDED {{id: row.eid}}]->"
+            f"(d:{label} {{id: row.dst}}) DELETE e",
+            {"rows": [{"src": src, "dst": dst, "eid": eid}]},
+        )
+
+    # Anonymous endpoints, with the id in the relationship pattern, work.
+    bolt.run(
+        "UNWIND $rows AS row MATCH ()-[e:SUPERSEDED {id: row.eid}]->() DELETE e",
+        {"rows": [{"eid": eid}]},
+    )
+    assert bolt.run(count)[0]["n"] == 0, "the edge survived its own deletion"
+
+
+def test_a_relationship_id_cannot_be_read_back(bolt, run_scope, upsert_nodes):
+    """`RETURN r.id` is rejected, while every other property on it returns.
+
+    So an edge cannot be found by reading its id out of the graph — which is why
+    edge ids are derived deterministically from the endpoints instead.
+    """
+    label = run_scope.label("RelIdNode")
+    src = run_scope.node_id(label, "src")
+    dst = run_scope.node_id(label, "dst")
+    eid = run_scope.edge_id("TAGGED", src, dst)
+    upsert_nodes(label, [{"vertex": src, "name": "a"}, {"vertex": dst, "name": "b"}])
+    bolt.run(
+        "UNWIND $rows AS row "
+        f"MATCH (s:{label} {{id: row.src}}), (d:{label} {{id: row.dst}}) "
+        # The value has to come off the row map; a literal is rejected with
+        # `UNWIND relationship SET values must read from the row map`.
+        "MERGE (s)-[r:TAGGED {id: row.eid}]->(d) SET r.method = row.method",
+        {"rows": [{"src": src, "dst": dst, "eid": eid, "method": "probe"}]},
+    )
+
+    rows = bolt.run(
+        f"MATCH (s:{label})-[r:TAGGED]->(d:{label}) RETURN r.method AS v")
+    assert rows[0]["v"] == "probe", "an ordinary relationship property must read"
+
+    with pytest.raises(Neo4jError):
+        bolt.run(f"MATCH (s:{label})-[r:TAGGED]->(d:{label}) RETURN r.id AS v")
