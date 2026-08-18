@@ -147,6 +147,29 @@ def main() -> int:
                status_map.get("pending", 0) == 0 and len(status_map) > 0,
                ", ".join(f"{k}={v}" for k, v in sorted(status_map.items())))
 
+        # The mention's `entity` property and its RESOLVES_TO edge are two
+        # records of one decision, and conflict grouping reads the property
+        # while everything else reads the edge. They desynchronised silently
+        # when a repair moved the edge and left the property behind.
+        edge_targets: dict[int, set[int]] = {}
+        for row in client.bolt_read(
+                "MATCH (m:Mention)-[r:RESOLVES_TO]->(e:Entity) WHERE r.run_id = $r "
+                "RETURN m.id AS mid, e.id AS eid LIMIT 20000", {"r": run_id}):
+            edge_targets.setdefault(row["mid"], set()).add(row["eid"])
+        mismatched = 0
+        for row in client.bolt_read(
+                "MATCH (m:Mention) WHERE m.run_id = $r "
+                "RETURN m.id AS mid, m.status AS status, m.entity AS entity "
+                "LIMIT 20000", {"r": run_id}):
+            targets = edge_targets.get(row["mid"], set())
+            if row["status"] == "resolved":
+                if targets != {row["entity"]}:
+                    mismatched += 1
+            elif row["entity"]:
+                mismatched += 1
+        record("every mention's recorded identity matches its edge", mismatched == 0,
+               f"{mismatched} mention(s) disagree with their own RESOLVES_TO edge")
+
         unresolved_with_reason = client.bolt_read(
             "MATCH (m:Mention) WHERE m.run_id = $r AND m.status = 'unresolved' "
             "AND m.candidates > 1 RETURN m.normalised AS surface LIMIT 20000",

@@ -24,6 +24,7 @@ from .controller import AnswerController
 from .graph_resolve import GraphEvidence
 from .hydra_client import HydraClient, parse_bookmark
 from .ingest import OnDemandIngestor
+from .reconcile import load_claims, load_subject_identity
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
@@ -348,19 +349,22 @@ def _path_steps(path) -> list[dict]:
 
 @app.get("/api/conflicts")
 def conflicts(limit: int = 8) -> dict:
-    """Contested facts with every version and its trust breakdown."""
+    """Contested facts with every version and its trust breakdown.
+
+    Reads through the same paged, identity-aware path reconciliation uses. It
+    had its own query — capped at 8,000 claims and grouping by subject name —
+    so the panel a judge looks at reported a different set of disputes from the
+    graph the answers are drawn from: 47 conflicts against 51, and a different
+    count decided. A panel that disagrees with the system it displays is worse
+    than no panel.
+    """
     c = client()
-    rows = c.bolt_read(
-        "MATCH (d:Document)-[:ASSERTS]->(cl:Claim)-[:SUPPORTED_BY]->(s:EvidenceSpan) "
-        "WHERE cl.run_id = $r RETURN cl.id AS claim_id, cl.dsid AS dsid, "
-        "d.source_type AS source_type, cl.subject AS subject, "
-        "cl.predicate AS predicate, cl.object AS object, "
-        "cl.confidence AS confidence, s.quote AS quote, d.timestamp AS timestamp "
-        "LIMIT 8000", {"r": run_id()})
-    records = [ClaimRecord(**row) for row in rows]
+    records = [ClaimRecord(**row) for row in load_claims(c, run_id())]
     timestamps = {r.dsid: r.timestamp for r in records if r.timestamp}
     order = sorted(timestamps, key=lambda d: timestamps[d])
-    found, stats = detect_conflicts(records, document_order=order)
+    found, stats = detect_conflicts(
+        records, document_order=order,
+        subject_identity=load_subject_identity(c, run_id()))
     return {"conflicts": [c.as_dict() for c in found[:limit]], "stats": stats}
 
 

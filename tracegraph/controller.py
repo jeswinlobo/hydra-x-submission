@@ -199,7 +199,12 @@ class AnswerController:
         """
         wanted = {(c["subject"], c["predicate"]) for c in claims}
         found: dict[tuple, dict] = {}
-        for dsid in sorted({c["dsid"] for c in claims})[:4]:
+        # Every cited document, not the first four. An answer citing documents
+        # five through eight could otherwise be called `supported` while resting
+        # on a fact the graph records as disputed — a silent wrong verdict,
+        # which is the one failure this whole path exists to prevent. Retrieval
+        # keeps at most eight, so the bound is the citation set itself.
+        for dsid in sorted({c["dsid"] for c in claims}):
             for direction, pattern in (
                 ("outgoing",
                  "MATCH (d:Document {dsid: $dsid})-[:ASSERTS]->(a:Claim)"
@@ -215,7 +220,10 @@ class AnswerController:
                     "RETURN a.subject AS subject, a.predicate AS predicate, "
                     "a.object AS cited_value, b.object AS rival_value, "
                     "b.dsid AS rival_dsid, e.decided AS decided, "
-                    "e.margin AS margin LIMIT 20",
+                    # Ordered, so a document with more disputes than the limit
+                    # yields the same ones every time rather than an arbitrary
+                    # slice that changes the verdict between identical runs.
+                    "e.margin AS margin ORDER BY b.id LIMIT 60",
                     {"dsid": dsid, "r": self.run_id},
                     hops=2,
                 )

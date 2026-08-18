@@ -184,26 +184,37 @@ def reconcile_conflicts(client: HydraClient, run_id: str, dsids, *,
     if not conflicts:
         return report
 
+    # An edge means "these two claims disagree", so it is only drawn between
+    # *different* versions. Pairing every claim inside a contested fact also
+    # joined claims that agree — two documents corroborating one value became a
+    # dispute between them. The answer reader filtered those out by comparing
+    # values, which hid the defect rather than fixing it: the graph still held
+    # edges asserting something false, and anything else reading them believed
+    # it. Today no contested fact happens to have two claims on one value; the
+    # moment corroboration appears, it would.
     pending, edges, seen = [], [], set()
     for conflict in conflicts:
-        claim_ids = sorted(
-            {c.claim_id for version in conflict.versions for c in version.claims})
-        for i, left in enumerate(claim_ids):
-            for right in claim_ids[i + 1:]:
-                if (left, right) in seen:
-                    continue
-                seen.add((left, right))
-                identity = edge_identity(
-                    "CONFLICTS_WITH", left, right, conflict.predicate.name)
-                pending.append(identity)
-                edges.append({
-                    "src": left, "dst": right, "eid": identity.id,
-                    "predicate": conflict.predicate.name,
-                    "subject": conflict.subject[:200],
-                    "decided": bool(conflict.decided),
-                    "margin": round(conflict.margin, 4),
-                    "run_id": run_id,
-                })
+        versions = [sorted({c.claim_id for c in version.claims})
+                    for version in conflict.versions]
+        for index, left_version in enumerate(versions):
+            for right_version in versions[index + 1:]:
+                for a in left_version:
+                    for b in right_version:
+                        left, right = (a, b) if a <= b else (b, a)
+                        if (left, right) in seen:
+                            continue
+                        seen.add((left, right))
+                        identity = edge_identity(
+                            "CONFLICTS_WITH", left, right, conflict.predicate.name)
+                        pending.append(identity)
+                        edges.append({
+                            "src": left, "dst": right, "eid": identity.id,
+                            "predicate": conflict.predicate.name,
+                            "subject": conflict.subject[:200],
+                            "decided": bool(conflict.decided),
+                            "margin": round(conflict.margin, 4),
+                            "run_id": run_id,
+                        })
 
     if edges:
         upsert_edges(client, "CONFLICTS_WITH", edges,

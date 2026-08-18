@@ -196,14 +196,24 @@ def _corroboration(version: Version, total_documents: int) -> float:
     return round(min(1.0, independent / max(total_documents, 2)), 3)
 
 
+# How many competing versions must carry a stated date before recency is
+# allowed to separate them. One is not enough: with a single dated version,
+# "dated" becomes a synonym for "newer", and the undated versions lose to a
+# document that never claimed to be later than anything.
+MIN_DATED_VERSIONS = 2
+
+
 def _recency(record: ClaimRecord, predicate: Predicate,
-             ordering: dict[str, int]) -> float:
+             ordering: dict[str, int], *, comparable: bool = True) -> float:
     """Position in time, but only where time can legitimately change the answer.
 
     For an immutable relation this is neutral for every version, so a later
-    document cannot win on lateness alone.
+    document cannot win on lateness alone. It is also neutral when too few
+    versions carry a date to compare — see `MIN_DATED_VERSIONS`. Only 15 of 176
+    claim-bearing documents in this corpus state one, so that is the common
+    case rather than an edge case.
     """
-    if not predicate.mutable:
+    if not predicate.mutable or not comparable:
         return 0.5
     position = ordering.get(record.dsid)
     if position is None or len(ordering) < 2:
@@ -307,11 +317,19 @@ def detect_conflicts(
             continue
 
         total_documents = len({c.dsid for c in claims})
+        # Recency may only separate versions that can actually be compared on
+        # it. A dated version beating undated ones is not evidence of being
+        # later, only of being dated.
+        dated_versions = sum(
+            1 for v in by_value.values()
+            if any(c.dsid in ordering for c in v.claims))
+        comparable = dated_versions >= MIN_DATED_VERSIONS
         for version in by_value.values():
             authority = max(
                 source_authority(predicate, c.source_type) for c in version.claims)
             directness = max(_directness(c) for c in version.claims)
-            recency = max(_recency(c, predicate, ordering) for c in version.claims)
+            recency = max(_recency(c, predicate, ordering, comparable=comparable)
+                          for c in version.claims)
             version.trust = TrustBreakdown(
                 authority=authority,
                 corroboration=_corroboration(version, total_documents),

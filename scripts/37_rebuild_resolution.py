@@ -149,6 +149,17 @@ def repoint_merged_away(client: HydraClient, run_id: str, resolver: Resolver,
                      target_label=ENTITY,
                      properties=["method", "confidence", "evidence",
                                  "candidates", "run_id"])
+        # The mention's own record of which identity it resolved to has to move
+        # with the edge. This pass runs after statuses are written, so leaving
+        # it behind desynchronised the two — and conflict grouping trusts the
+        # property, not the edge, because reading the property costs 0.5s and
+        # walking the edge costs 7.6s.
+        upsert_nodes(client, MENTION, [
+            {"vertex": row["src"], "status": "resolved",
+             "method": "merged_identity", "entity": row["dst"]}
+            for row in additions],
+            job=f"rebuild-repoint-st:{run_id}",
+            properties=["status", "method", "entity"])
     return moved
 
 

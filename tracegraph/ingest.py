@@ -94,7 +94,7 @@ class OnDemandIngestor:
     """
 
     def __init__(self, client: HydraClient, run_id: str, *,
-                 extract: bool = True, max_body: int = 8000,
+                 extract: bool = True, max_body: int = 16000,
                  resolve: bool = True, reconcile: bool = True) -> None:
         self.client = client
         self.run_id = run_id
@@ -229,6 +229,12 @@ class OnDemandIngestor:
             return prepared
         started = time.perf_counter()
         try:
+            # 8,000 characters truncated 35.7% of the corpus and discarded
+            # 11.1% of all text, concentrated in exactly the long documents that
+            # multi-document questions depend on. 16,000 retains 99.5% for about
+            # twice the input tokens on a third of documents — Haiku input is
+            # the cheapest thing in this pipeline, and evidence the extractor
+            # never saw cannot be cited, contested, or abstained over.
             result = extract_claims(prepared.body[: self.max_body], prepared.dsid)
             prepared.accepted = result.accepted
             prepared.rejected = result.rejected
