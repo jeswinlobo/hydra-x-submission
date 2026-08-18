@@ -43,6 +43,7 @@ from tracegraph.resolve import (  # noqa: E402
     METHOD_GRAPH_EVIDENCE,
     METHOD_UNRESOLVED,
     Resolver,
+    normalise_address,
     pack,
 )
 
@@ -93,6 +94,51 @@ def load_and_parse(client: HydraClient, run_id: str) -> dict:
     finally:
         locator.close()
     return parsed
+
+
+def record_canonical(client: HydraClient, run_id: str, resolver: Resolver,
+                     entity_ids: dict) -> int:
+    """Write `MERGED_INTO` from every folded identity to the survivor.
+
+    A merge that lives only in a Python resolver lasts until the process exits.
+    The loser's vertex stays in the graph — deleting it would strand whatever
+    references it — so the next resolver adopts it again, as its own protected
+    identity, and two protected identities are never merged. `Camila Reyes` was
+    back to six candidates on every restart, which made canonicalisation an
+    illusion held together by uptime.
+
+    Writing the decision as an edge makes it durable and, being an edge, also
+    traversable: the graph can be asked which identities were folded and into
+    what, which is exactly the audit question a merge should have to answer.
+    """
+    rows = client.bolt_read(
+        "MATCH (e:Entity) WHERE e.run_id = $r RETURN e.id AS id, e.key AS key "
+        "LIMIT 20000", {"r": run_id})
+    edges, pending = [], []
+    for row in rows:
+        key = row["key"] or ""
+        if key in entity_ids or ":" not in key:
+            continue
+        address = key.split(":", 1)[1]
+        # A doubled address never reaches `_by_email` under its written form,
+        # so it is normalised here too — otherwise the entity keyed on it stays
+        # a separate candidate forever, which is what kept Naomi Feldman at two.
+        survivor = (resolver._by_email.get(address)
+                    or resolver._by_email.get(normalise_address(address)))
+        if not survivor or survivor not in entity_ids:
+            continue
+        target = entity_ids[survivor].id
+        if target == row["id"]:
+            continue
+        identity = edge_identity("MERGED_INTO", row["id"], target)
+        pending.append(identity)
+        edges.append({"src": row["id"], "dst": target, "eid": identity.id,
+                      "into": survivor[:200], "run_id": run_id})
+    if edges:
+        upsert_edges(client, "MERGED_INTO", edges, job=f"canonical:{run_id}",
+                     source_label=ENTITY, target_label=ENTITY,
+                     properties=["into", "run_id"])
+    return len(edges)
 
 
 def repoint_merged_away(client: HydraClient, run_id: str, resolver: Resolver,
@@ -373,6 +419,10 @@ def main() -> int:
         moved = repoint_merged_away(client, run_id, resolver, entity_ids, want)
         if moved:
             print(f"  repointed {moved} mentions off identities that were merged away")
+
+        canonical = record_canonical(client, run_id, resolver, entity_ids)
+        print(f"  recorded {canonical} MERGED_INTO edges, so the merge survives "
+              "a restart")
 
         registry.register_many(pending)
         resolved = sum(1 for s in statuses if s["status"] == "resolved")

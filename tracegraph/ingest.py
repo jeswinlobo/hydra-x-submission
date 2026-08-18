@@ -136,13 +136,33 @@ class OnDemandIngestor:
             self._resolver = resolver
         return self._resolver
 
+    def superseded_keys(self) -> dict[str, str]:
+        """Identities folded into another, mapped to the one that survived.
+
+        A merge writes `MERGED_INTO` rather than deleting the loser, because
+        deleting a vertex would strand whatever still references it. That means
+        the loser is still in the graph, and adopting it would undo the merge on
+        every restart: it comes back as its own protected identity, and two
+        protected identities are never merged, so `Camila Reyes` returned to six
+        candidates the moment the process was restarted.
+        """
+        return {row["from"]: row["to"] for row in self.client.bolt_read(
+            "MATCH (a:Entity)-[m:MERGED_INTO]->(b:Entity) WHERE m.run_id = $r "
+            "RETURN a.key AS from, b.key AS to LIMIT 20000",
+            {"r": self.run_id})}
+
     def _adopt_known(self, resolver: Resolver) -> int:
         """Pull entities out of the graph and into the resolver.
 
         Bounded, and deliberately so — this is the candidate pool for one
         document's surfaces, not a mirror of the graph. Entities arrive in a
         stable order so the pool does not shift underneath a repeated question.
+
+        Superseded identities are skipped. Without that the candidate pool grows
+        back to the pre-merge population on every restart, and canonicalisation
+        holds only until the process dies.
         """
+        superseded = self.superseded_keys()
         rows = self.client.bolt_read(
             "MATCH (e:Entity) WHERE e.run_id = $r "
             "RETURN e.key AS key, e.name AS name, e.emails AS emails, "
@@ -151,7 +171,7 @@ class OnDemandIngestor:
         adopted = 0
         for row in rows:
             key = row["key"]
-            if not key or key in self._adopted:
+            if not key or key in self._adopted or key in superseded:
                 continue
             resolver.adopt(
                 key, row["name"] or key,

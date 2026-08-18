@@ -26,6 +26,7 @@ single round is what a viewer would actually notice going wrong:
 from __future__ import annotations
 
 import argparse
+import json
 import statistics
 import sys
 import time
@@ -48,6 +49,7 @@ MIN_VERDICT_RATE = 0.9
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--rounds", type=int, default=10)
+    ap.add_argument("--out", default="artifacts/demo_stability.json")
     args = ap.parse_args()
 
     failures: list[str] = []
@@ -201,6 +203,31 @@ def main() -> int:
 
     print(f"\nverdicts seen: "
           + ", ".join(f"{k}={v}" for k, v in sorted(seen_verdicts.items())))
+    # Written down, because a stability claim nobody can check is not evidence.
+    # The audits could not reproduce these rounds without sending corpus text to
+    # a model API, so the run records itself.
+    record_path = Path(args.out)
+    record_path.parent.mkdir(parents=True, exist_ok=True)
+    record_path.write_text(json.dumps({
+        "rounds": args.rounds,
+        "questions": [
+            {"question": q, "allowed": sorted(e["allowed"]),
+             "verdicts": e["verdicts"],
+             "rate": sum(1 for v in e["verdicts"] if v in e["allowed"])
+                     / len(e["verdicts"])}
+            for q, e in per_question.items()
+        ],
+        "verdicts_seen": seen_verdicts,
+        "latency_seconds": {
+            "p50": round(statistics.median(latencies), 1),
+            "p95": round(latencies[int(len(latencies) * 0.95) - 1], 1),
+            "max": round(latencies[-1], 1),
+        } if latencies else {},
+        "min_verdict_rate": MIN_VERDICT_RATE,
+        "failures": failures,
+    }, indent=2) + "\n")
+    print(f"  recorded to {record_path}")
+
     print(f"\n{args.rounds} consecutive clean rounds. Ready to record.")
     return 0
 

@@ -259,7 +259,11 @@ def prune_superseded(client: HydraClient, run_id: str,
         client,
         "MATCH (a:Claim)-[e:CONFLICTS_WITH]->(b:Claim) WHERE e.run_id = $r "
         "RETURN a.id AS src, b.id AS dst, e.predicate AS predicate",
-        {"r": run_id}, CLAIM_PAGE, "ORDER BY a.id")
+        # Ordered on both endpoints: `a.id` alone is not unique across edges —
+        # one claim disputes several — so pages could repeat a row and skip
+        # another, which in a prune means deleting an edge that is still
+        # justified.
+        {"r": run_id}, CLAIM_PAGE, "ORDER BY a.id, b.id")
     stale = [edge_identity("CONFLICTS_WITH", row["src"], row["dst"],
                            row["predicate"] or "").id
              for row in rows if (row["src"], row["dst"]) not in justified]

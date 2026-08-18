@@ -83,6 +83,22 @@ def _same_organisation(a: str, b: str) -> bool:
     return len(shorter) >= _ROOT_PREFIX_MIN and longer.startswith(shorter)
 
 
+def normalise_address(email: str) -> str:
+    """One address from what a header handed over.
+
+    A parse can return `naomi.feldman@naomi.feldman@redwood.com` when a header
+    repeats the local part. Two entities in this graph were keyed on such a
+    string, which makes a person unreachable under the address they actually
+    use — and the fix at the parser only protects documents ingested after it,
+    so the repair pass needs the same rule.
+    """
+    email = (email or "").casefold().strip()
+    if email.count("@") > 1:
+        local, _, domain = email.rpartition("@")
+        email = f"{local.split('@')[0]}@{domain}"
+    return email
+
+
 def pack(values: Iterable[str], cap: int) -> str:
     """Join values with `;`, dropping whole values rather than cutting one.
 
@@ -207,14 +223,7 @@ class Resolver:
 
     def _observe_person(self, doc_id: str, mention: Mention, email: str,
                         channel: str | None) -> None:
-        email = email.casefold()
-        # A parse can hand back `naomi.feldman@naomi.feldman@redwood.com` when a
-        # header repeats the local part. Two entities in this graph were keyed on
-        # such a string, which makes a person unreachable under their real
-        # address. Keep the last `@`, which is the one before the domain.
-        if email.count("@") > 1:
-            local, _, domain = email.rpartition("@")
-            email = f"{local.split('@')[0]}@{domain}"
+        email = normalise_address(email)
         key = self._by_email.get(email) or f"email:{email}"
         person = self.people.get(key)
         if person is None:

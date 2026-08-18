@@ -20,6 +20,7 @@
 !/artifacts/seed_ablation.json
 !/artifacts/recall_by_budget.json
 !/artifacts/identity_eval.json
+!/artifacts/demo_stability.json
 # Raw dataset excerpts dumped for parser design. Never staged: committed
 # fixtures are small synthetic documents, not corpus text.
 /inspect/

@@ -15,7 +15,7 @@ from __future__ import annotations
 import pytest
 
 from tracegraph.parsers.base import PERSON, Mention, organisation_root
-from tracegraph.resolve import Resolver, pack
+from tracegraph.resolve import Resolver, normalise_address, pack
 
 
 def mention(surface: str, email: str, start: int = 0) -> Mention:
@@ -141,3 +141,69 @@ def test_packed_addresses_are_all_still_addresses():
     assert packed, "the cap should still admit several addresses"
     assert all("@" in part for part in packed.split(";"))
     assert len(packed) <= 400
+
+
+# --- canonicalisation has to outlive the process ----------------------------
+
+
+def test_a_folded_identity_is_recorded_not_just_forgotten():
+    """A merge that lives only in a resolver lasts until the process exits.
+
+    The loser's vertex stays in the graph — deleting it would strand whatever
+    references it — so the next resolver adopts it again as its own protected
+    identity, and two protected identities are never merged. `Camila Reyes`
+    came back to six candidates on every restart while mention-level splits
+    read as fixed. The decision has to be written down.
+    """
+    r = Resolver()
+    for local in ("camila.reyes", "camila_reyes"):
+        r.observe(f"doc_{local}", "gmail",
+                  [mention("Camila Reyes", f"{local}@redwood.ai")])
+    assert len(r.people) == 2
+    assert r.merge_same_person() == 1
+
+    survivor = next(iter(r.people))
+    folded = "email:camila_reyes@redwood.ai"
+    assert folded not in r.people, "the loser is still a live identity"
+    # The survivor must be reachable from the folded address, which is what a
+    # persisted MERGED_INTO edge encodes.
+    assert r._by_email["camila_reyes@redwood.ai"] == survivor
+
+
+def test_re_adopting_a_folded_identity_undoes_the_merge():
+    """The exact failure, reproduced: this is why adoption must skip them.
+
+    Both vertices exist in the graph after a merge. Adopting both makes them
+    protected, `merge_same_person` refuses to fold two protected identities,
+    and the surface resolves to several candidates again.
+    """
+    naive = Resolver()
+    naive.adopt("email:camila.reyes@redwood.ai", "Camila Reyes",
+                ["camila.reyes@redwood.ai"], ["redwood.ai"])
+    naive.adopt("email:camila_reyes@redwood.ai", "Camila Reyes",
+                ["camila_reyes@redwood.ai"], ["redwood.ai"])
+    naive.merge_same_person(protected=set(naive.people))
+    assert len(naive.candidates_for("Camila Reyes")) == 2, (
+        "adopting both vertices should reproduce the split")
+
+    # Skipping the folded one — what `OnDemandIngestor._adopt_known` now does
+    # using the graph's MERGED_INTO edges — restores a single candidate.
+    canonical = Resolver()
+    canonical.adopt("email:camila.reyes@redwood.ai", "Camila Reyes",
+                    ["camila.reyes@redwood.ai", "camila_reyes@redwood.ai"],
+                    ["redwood.ai"])
+    assert canonical.candidates_for("Camila Reyes") == [
+        "email:camila.reyes@redwood.ai"]
+
+
+def test_a_doubled_address_normalises_to_one():
+    """`naomi.feldman@naomi.feldman@redwood.com` reached the graph as a key,
+    which made that person unreachable under the address she actually uses."""
+    assert (normalise_address("naomi.feldman@naomi.feldman@redwood.com")
+            == "naomi.feldman@redwood.com")
+    assert normalise_address("ordinary@redwood.com") == "ordinary@redwood.com"
+
+    r = Resolver()
+    r.observe("doc", "gmail", [mention(
+        "Naomi Feldman", "naomi.feldman@naomi.feldman@redwood.com")])
+    assert list(r.people) == ["email:naomi.feldman@redwood.com"]

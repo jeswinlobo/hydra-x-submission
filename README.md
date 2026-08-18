@@ -79,7 +79,7 @@ MATCH (e:Entity {id: $eid})-[:PARTICIPATED_IN]->(c:Channel {id: $cid})
 RETURN count(*) AS n
 ```
 
-On the loaded slice this decided **766 mention occurrences**, spanning **24
+On the loaded slice this decided **1,066 mention occurrences**, spanning **38
 distinct ambiguous surfaces** — `alex` resolved to Alex Chen over 47 competitors,
 at 0.95 confidence. The two numbers are far apart on purpose: bare first names
 are few but they recur constantly, so a handful of genuinely ambiguous strings
@@ -87,7 +87,7 @@ accounts for most of the volume. `scripts/35_verify_gate.py` reports both,
 straight out of the graph.
 
 Where the graph does not separate the candidates the mention stays unresolved
-with its candidate set recorded — **1,682 mentions across 72 surfaces** — because
+with its candidate set recorded — **1,695 mentions across 72 surfaces** — because
 a wrong merge is worse than an honest "cannot tell".
 
 **Scored against ground truth.** `eval-oracle/employee_directory.yaml` is the
@@ -135,6 +135,20 @@ wrong answers: a mention of the cardiotech Elena still landed on an entity that
 was partly her. It is the exposure, not a proven error rate, and the distinction
 matters because overstating it would be the same failure the merge rule is
 guarding against.
+**A merge is recorded, not just performed.** The folded vertex stays — deleting
+it would strand whatever references it — so the decision is written as
+`Entity -[:MERGED_INTO]-> Entity`. Without that, canonicalisation lasted exactly
+as long as the process: the next resolver adopted the folded vertex again as its
+own protected identity, two protected identities are never merged, and
+`Camila Reyes` was back to six candidates on restart while mention-level splits
+read as fixed. A fresh resolver now adopts 1,202 identities rather than 1,257,
+and Camila, Naomi, Tessa and Grace each resolve to one.
+
+The gate holds both halves: no mention carries two resolutions, and no full name
+is split across live vertices *at the same organisation*. Ninety-eight names are
+split across different organisations, which is two people rather than one
+fragmented — merging those would be the false merge the whole module refuses.
+
 `scripts/37_rebuild_resolution.py` re-decides every identity in the graph and
 **deletes** the edges the old rule produced, which the engine permits only
 through a form documented in `docs/engine-notes.md`. The graph now holds **zero**
@@ -332,7 +346,7 @@ under a labelled match, an abstention carries no citations or claims, a
 `conflicting` verdict names the rival version, and a `supported` answer is not
 sitting on a dispute the system found. It also refuses to pass a run in which no
 question came back contested, because a controller that had quietly stopped
-detecting conflicts would otherwise score ten out of ten. Latency p50 9.0s, p95 54.8s — the tail is one slow synthesis call, not the graph.
+detecting conflicts would otherwise score ten out of ten. Latency p50 9.2s, p95 13.4s, recorded in `artifacts/demo_stability.json` so the run is checkable rather than reported.
 
 That p50 was 29.6s until the corpus was re-chunked. The file ships as a single
 row group holding all 511,962 documents, and parquet decodes a row group whole,
@@ -436,8 +450,8 @@ round-trips a real query first, because a port is not proof.
 ## Verifying the claims above
 
 ```bash
-uv run pytest                             # 177 tests, 27 against the live engine
-uv run python scripts/35_verify_gate.py   # 11 checks, read back from the graph
+uv run pytest                             # 192 tests, 27 against the live engine
+uv run python scripts/35_verify_gate.py   # 14 checks, read back from the graph
 uv run python scripts/36_repair_graph.py  # audit identities and undecided mentions
 uv run python scripts/37_rebuild_resolution.py  # re-decide every identity, report drift
 uv run python scripts/76_recall_by_budget.py  # recall at 4, 8 and 20, one pass

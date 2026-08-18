@@ -24,6 +24,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tracegraph.hydra_client import HydraClient, parse_bookmark  # noqa: E402
+from tracegraph.parsers.base import email_domain, organisation_root  # noqa: E402
+from tracegraph.resolve import _same_organisation  # noqa: E402
 
 CHECKS: list[tuple[str, bool]] = []
 
@@ -180,6 +182,48 @@ def main() -> int:
                f"{n_amb} mentions kept a competing candidate set, across "
                f"{n_amb_surfaces} distinct surfaces")
 
+        # Mention clusters can be clean while the entity population is not.
+        #
+        # A merge leaves the folded vertex in place — deleting it would strand
+        # whatever references it — so canonicalisation has to be *recorded*, or
+        # the next resolver adopts the loser again as its own protected identity
+        # and the merge quietly undoes itself. `Camila Reyes` returned to six
+        # candidates on every restart while mention-level splits read as fixed.
+        live_names: dict[str, set[str]] = {}
+        superseded = {row["from"] for row in client.bolt_read(
+            "MATCH (a:Entity)-[m:MERGED_INTO]->(b:Entity) WHERE m.run_id = $r "
+            "RETURN a.key AS from LIMIT 20000", {"r": run_id})}
+        for row in client.bolt_read(
+                "MATCH (e:Entity) WHERE e.run_id = $r "
+                "RETURN e.key AS key, e.name AS name LIMIT 20000", {"r": run_id}):
+            name = (row["name"] or "").strip().casefold()
+            if not name or "@" in name or len(name.split()) < 2:
+                continue
+            if row["key"] in superseded:
+                continue
+            live_names.setdefault(name, set()).add(row["key"])
+        # A shared name across *different* organisations is not fragmentation,
+        # it is two people — 98 such names here, and merging them would be the
+        # false merge the resolver exists to refuse. Only a name split across
+        # vertices at the same organisation is a merge that failed to happen.
+        def _root(key: str) -> str:
+            return organisation_root(email_domain(key.split(":", 1)[-1]))
+
+        fragmented = {
+            name: keys for name, keys in live_names.items()
+            if len(keys) > 1 and any(
+                _same_organisation(_root(a), _root(b))
+                for i, a in enumerate(sorted(keys)) for b in sorted(keys)[i + 1:])
+        }
+        split_across_orgs = sum(1 for k in live_names.values() if len(k) > 1)
+        record("one canonical identity per person per organisation",
+               not fragmented,
+               f"{len(live_names)} named identities; {len(fragmented)} split "
+               f"within one organisation, {split_across_orgs - len(fragmented)} "
+               "across different organisations (two people, correctly apart)"
+               + (f"; worst: {sorted(fragmented, key=lambda n: -len(fragmented[n]))[0]}"
+                  if fragmented else ""))
+
         # The panel recomputes disputes from claims; answers walk persisted
         # edges. When those disagree, the interface shows a conflict the answer
         # cannot see — 31 edges were missing when this was first measured, over
@@ -187,7 +231,7 @@ def main() -> int:
         # from a detector that has quietly stopped writing.
         from tracegraph.conflicts import ClaimRecord, detect_conflicts
         from tracegraph.reconcile import (
-            conflict_edge_rows, load_claims, load_subject_identity,
+            _read_all, conflict_edge_rows, load_claims, load_subject_identity,
         )
 
         records = [ClaimRecord(**row) for row in load_claims(client, run_id)]
@@ -197,10 +241,14 @@ def main() -> int:
             subject_identity=load_subject_identity(client, run_id))
         _, expected_rows = conflict_edge_rows(detected, run_id)
         expected = {(row["src"], row["dst"]) for row in expected_rows}
+        # Paged, not capped. A check that reads 20,000 of N edges and declares
+        # them equal to the detector is asserting something it did not look at.
         persisted = {
-            (row["src"], row["dst"]) for row in client.bolt_read(
+            (row["src"], row["dst"]) for row in _read_all(
+                client,
                 "MATCH (a:Claim)-[e:CONFLICTS_WITH]->(b:Claim) WHERE e.run_id = $r "
-                "RETURN a.id AS src, b.id AS dst LIMIT 20000", {"r": run_id})}
+                "RETURN a.id AS src, b.id AS dst",
+                {"r": run_id}, 4000, "ORDER BY a.id, b.id")}
         missing, extra = expected - persisted, persisted - expected
         record("every detected conflict is persisted as an edge",
                not missing and not extra,

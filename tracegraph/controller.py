@@ -269,6 +269,14 @@ class AnswerController:
                         })
                     if len(rows) < _DISPUTE_PAGE:
                         break
+                else:
+                    # Falling off the page ceiling means disputes were not read,
+                    # and an unseen dispute becomes a `supported` verdict on a
+                    # contested fact. Recorded in the trace rather than dropped.
+                    self._queries.append(TracedQuery(
+                        operation="contested_claims(truncated)",
+                        cypher=f"stopped after {_DISPUTE_MAX_PAGES} pages for {dsid}",
+                        hops=0, results=0, ms=0.0))
         return list(found.values())[:6]
 
     # --- validation ---------------------------------------------------------

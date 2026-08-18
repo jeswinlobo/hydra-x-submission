@@ -14,22 +14,23 @@
     "entities_matched_to_an_employee": 106,
     "entities_matching_two_or_more_employees": 0,
     "entities_out_of_scope": 1151,
-    "mentions_with_strict_gold": 2965,
-    "mentions_with_strict_gold_pct": 28.7278364499564,
-    "mentions_with_lenient_gold": 4167,
-    "mentions_with_lenient_gold_pct": 40.373994767948844,
-    "mentions_excluded": 7356,
+    "mentions_with_strict_gold": 2968,
+    "mentions_with_strict_gold_pct": 28.756903400833252,
+    "mentions_with_lenient_gold": 4170,
+    "mentions_with_lenient_gold_pct": 40.4030617188257,
+    "mentions_excluded": 7353,
     "exclusion_reasons": {
       "address_outside_directory": 1558,
       "surface_ambiguous_or_absent": 3366,
       "lenient_only_single_token": 1202,
       "surface_names_nobody_in_directory": 1174,
       "internal_address_unmatched": 20,
-      "external_namesake": 36
+      "external_namesake": 33
     },
     "gold_label_sources": {
       "email_anchor": 2728,
-      "name_anchor_internal_address": 237
+      "name_anchor_internal_address": 237,
+      "name_anchor_no_address": 3
     },
     "employees_seen_via_entities": 53,
     "employees_seen_via_strict_mentions": 53,
@@ -73,42 +74,42 @@
     "metrics": {
       "with_abstention_as_singletons": {
         "pairwise": {
-          "mentions": 2965,
-          "tp": 351248,
+          "mentions": 2968,
+          "tp": 351309,
           "fp": 0,
           "fn": 119136,
-          "tn": 3923746,
+          "tn": 3932583,
           "precision": 1.0,
-          "recall": 0.7467260791183373,
-          "f1": 0.8550007789375291
+          "recall": 0.7467589197461978,
+          "f1": 0.855022305945575
         },
         "bcubed": {
-          "mentions": 2965,
+          "mentions": 2968,
           "precision": 1.0,
-          "recall": 0.8980183357444295,
-          "f1": 0.9462693998603696
+          "recall": 0.8981214169414533,
+          "f1": 0.9463266247621245
         }
       },
       "resolved_only": {
         "pairwise": {
-          "mentions": 2965,
-          "tp": 351248,
+          "mentions": 2968,
+          "tp": 351309,
           "fp": 0,
           "fn": 119136,
-          "tn": 3923746,
+          "tn": 3932583,
           "precision": 1.0,
-          "recall": 0.7467260791183373,
-          "f1": 0.8550007789375291
+          "recall": 0.7467589197461978,
+          "f1": 0.855022305945575
         },
         "bcubed": {
-          "mentions": 2965,
+          "mentions": 2968,
           "precision": 1.0,
-          "recall": 0.8980183357444295,
-          "f1": 0.9462693998603696
+          "recall": 0.8981214169414533,
+          "f1": 0.9463266247621245
         }
       },
-      "scored_mentions": 2965,
-      "scored_mentions_resolved": 2965,
+      "scored_mentions": 2968,
+      "scored_mentions_resolved": 2968,
       "scored_mentions_abstained": 0
     },
     "false_merges": {
@@ -149,6 +150,15 @@
         "indeterminate": 0,
         "precision": 1.0,
         "examples_wrong": []
+      },
+      "token_set_exact": {
+        "scored_mentions": 3,
+        "decidable": 3,
+        "correct": 3,
+        "wrong": 0,
+        "indeterminate": 0,
+        "precision": 1.0,
+        "examples_wrong": []
       }
     }
   },
@@ -156,42 +166,42 @@
     "metrics": {
       "with_abstention_as_singletons": {
         "pairwise": {
-          "mentions": 4167,
-          "tp": 399686,
+          "mentions": 4170,
+          "tp": 399747,
           "fp": 0,
           "fn": 174680,
-          "tn": 8105495,
+          "tn": 8117938,
           "precision": 1.0,
-          "recall": 0.6958733629776136,
-          "f1": 0.8206666584535528
+          "recall": 0.6959056590306514,
+          "f1": 0.820689117139238
         },
         "bcubed": {
-          "mentions": 4167,
+          "mentions": 4170,
           "precision": 1.0,
-          "recall": 0.761948849171369,
-          "f1": 0.8648932680760938
+          "recall": 0.762120108992109,
+          "f1": 0.8650035886918329
         }
       },
       "resolved_only": {
         "pairwise": {
-          "mentions": 3533,
-          "tp": 399686,
+          "mentions": 3536,
+          "tp": 399747,
           "fp": 0,
           "fn": 120023,
-          "tn": 5719569,
+          "tn": 5730110,
           "precision": 1.0,
-          "recall": 0.7690572993733031,
-          "f1": 0.869454369449475
+          "recall": 0.7690844027165862,
+          "f1": 0.8694716900285694
         },
         "bcubed": {
-          "mentions": 3533,
+          "mentions": 3536,
           "precision": 1.0,
-          "recall": 0.9119780666930024,
-          "f1": 0.9539628958928162
+          "recall": 0.9120527459350616,
+          "f1": 0.9540037510722911
         }
       },
-      "scored_mentions": 4167,
-      "scored_mentions_resolved": 3533,
+      "scored_mentions": 4170,
+      "scored_mentions_resolved": 3536,
       "scored_mentions_abstained": 634
     },
     "false_merges": {
@@ -273,6 +283,15 @@
         "scored_mentions": 2965,
         "decidable": 2965,
         "correct": 2965,
+        "wrong": 0,
+        "indeterminate": 0,
+        "precision": 1.0,
+        "examples_wrong": []
+      },
+      "token_set_exact": {
+        "scored_mentions": 3,
+        "decidable": 3,
+        "correct": 3,
         "wrong": 0,
         "indeterminate": 0,
         "precision": 1.0,
@@ -512,7 +531,7 @@
     "conflicting_handles": []
   },
   "caveats": [
-    "Strict precision is close to structurally guaranteed, not earned. 2728 of 2965 strict labels come from the same address the tier-1 rule keyed on, and the resolver only merges identities that share a full name \u2014 while every full name in the directory is unique. A false merge of two employees therefore cannot appear in this label set. Read strict recall, not strict precision.",
+    "Strict precision is close to structurally guaranteed, not earned. 2728 of 2968 strict labels come from the same address the tier-1 rule keyed on, and the resolver only merges identities that share a full name \u2014 while every full name in the directory is unique. A false merge of two employees therefore cannot appear in this label set. Read strict recall, not strict precision.",
     "No abstained mention carries a strict label, so strict recall measures fragmentation only, never the cost of refusing. Every unresolved surface with two or more name tokens is a bot or a handle (`infra-bot`, `alice-tilman`), not a directory name. The lenient run is where abstention enters the recall figure.",
     "The graph-evidence tier is effectively unscorable against this oracle: 1055 of its 1066 decisions are on one-token surfaces, for which a directory of employees supplies no referent, and 1054 land on identities the directory does not contain. Its lenient precision rests on a small decidable sample; treat the sample size as the headline.",
     "Lenient precision is near-structural too. A lenient label is a function of the surface token, and the resolver's candidate set is a function of the same token, so two mentions can only land in one entity with different labels if their surfaces differ \u2014 which is exactly the case the label rule declines to cover. Zero false positives here is weak evidence, not strong evidence.",
