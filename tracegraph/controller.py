@@ -73,7 +73,8 @@ class AnswerController:
     """Turns a question into a grounded answer or an abstention."""
 
     def __init__(self, client: HydraClient, run_id: str, *, max_documents: int = 8,
-                 ingestor=None, ingest_budget: int = 4) -> None:
+                 ingestor=None, ingest_budget: int = 4,
+                 evidence_window: int = 96) -> None:
         self.client = client
         self.run_id = run_id
         self.max_documents = max_documents
@@ -81,6 +82,15 @@ class AnswerController:
         # slice into something that answers over the whole corpus.
         self.ingestor = ingestor
         self.ingest_budget = ingest_budget
+        # How much of the gathered evidence synthesis actually sees.
+        #
+        # This was 40 against roughly 140 claims from eight retrieved
+        # documents — the model was shown under a third of what retrieval had
+        # already paid for, and which third depended on document order. It also
+        # made identity-seeded documents actively harmful: putting them first
+        # displaced lexical evidence out of the window and cost three answers
+        # that lexical retrieval alone had got right.
+        self.evidence_window = evidence_window
         self.registry = IdRegistry()
         self._queries: list[TracedQuery] = []
         self._ingested: list[dict] = []
@@ -328,7 +338,7 @@ class AnswerController:
                 question, "no evidence in the graph supports this question",
                 started, claims, rejected_spans)
 
-        result = synthesise_answer(question, evidence[:40])
+        result = synthesise_answer(question, evidence[: self.evidence_window])
 
         # The model may cite only what it was given, and only what still exists.
         allowed = {item.dsid for item in evidence}

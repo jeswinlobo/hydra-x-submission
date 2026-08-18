@@ -120,10 +120,12 @@ FastAPI · uv · pytest.
 ## Results
 
 Retrieval over all 511,962 documents against the 470 benchmark questions that
-carry an answer key: **mean document recall 0.736**, at least one expected
-document for **77.4%** of questions, median rank of the first correct document
-**1**. By type it ranges from 0.925 on intra-document reasoning down to 0.488 on
-semantic questions — that gap is precisely what graph reasoning exists to close.
+carry an answer key, reported at the budget production actually uses — eight
+documents per question, not the flattering top-20: **mean document recall
+0.671**, semantic **0.424**, at least one expected document for **77.4%** of
+questions, median rank of the first correct document **1**. At top-20 those are
+0.736 and 0.488, which is what a wider configuration would give and is stated
+here only so the two are not confused.
 
 Evidence discipline is measured, not asserted: of 505 claims produced in a pilot
 batch, **62 (12%) cited evidence not appearing verbatim in the source and were

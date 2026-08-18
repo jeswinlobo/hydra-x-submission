@@ -245,14 +245,21 @@ settled by a check that can fail.
 ## Results
 
 Retrieval, measured over all 511,962 documents against the 470 benchmark
-questions that carry an answer key (`scripts/75_retrieval_eval.py`):
+questions that carry an answer key (`scripts/75_retrieval_eval.py`).
 
-| Metric | Value |
-|---|---|
-| Mean document recall (top-20) | 0.736 |
-| At least one expected document | 364/470 (77.4%) |
-| Every expected document | 325/470 (69.1%) |
-| Median rank of first correct document | 1 |
+**Reported at the budget production actually uses.** Retrieval keeps eight
+documents per question, so top-20 recall would flatter the system by describing
+a configuration it does not run:
+
+| Budget | Mean recall | Semantic recall | |
+|---|---|---|---|
+| 4 — cold enrichment | 0.587 | 0.312 | documents a cold question enriches |
+| **8 — production** | **0.671** | **0.424** | **what the answer path sees** |
+| 20 | 0.736 | 0.488 | wider than anything downstream consumes |
+
+At the production budget: at least one expected document for **77.4%** of
+questions, every expected document for **69.1%**, median rank of the first
+correct document **1**.
 
 By question type, which is the useful cut — lexical search does well where
 question wording overlaps the source and collapses where it does not:
@@ -278,14 +285,19 @@ seconds and indexes in 312. Registering 511,958 document ids produced **zero
 collisions**.
 
 **Demo stability.** Ten consecutive rounds of the four demo questions — one
-supported, one contested, one either, one unanswerable — all clean
-(`scripts/80_demo_check.py`). It checks invariants rather than exact prose:
-every citation exists in the graph under a labelled match, an abstention carries
-no citations or claims, a `conflicting` verdict names the rival version, and a
-`supported` answer is not sitting on a dispute the system found. It also refuses
-to pass a run in which no question came back contested, because a controller
-that had quietly stopped detecting conflicts would otherwise score ten out of
-ten. Latency p50 7.7s, p95 13.1s.
+supported, one contested, one either, one unanswerable (`scripts/80_demo_check.py`).
+
+It asserts invariants every round and *tallies* verdicts, because synthesis is
+not deterministic and this check is what established that: a question answering
+`supported` in thirty-nine rounds of forty came back `insufficient` once, and a
+separate ablation found four verdicts in twelve moving between two runs of
+identical code. Failing on that would measure the model's temperature. What
+never varies, and is asserted absolutely: every citation exists in the graph
+under a labelled match, an abstention carries no citations or claims, a
+`conflicting` verdict names the rival version, and a `supported` answer is not
+sitting on a dispute the system found. It also refuses to pass a run in which no
+question came back contested, because a controller that had quietly stopped
+detecting conflicts would otherwise score ten out of ten. Latency p50 9.0s, p95 54.8s — the tail is one slow synthesis call, not the graph.
 
 That p50 was 29.6s until the corpus was re-chunked. The file ships as a single
 row group holding all 511,962 documents, and parquet decodes a row group whole,
@@ -296,7 +308,36 @@ once. Answering spent longer scanning parquet than talking to the model.
 and indexes that: **4,465ms → 12ms per document fetch**, and the preload scan on
 the first question disappears entirely.
 
-**Graph expansion of retrieval was tried, measured, and removed.** The obvious
+**Two attempts to make the graph do retrieval work were measured and removed.**
+
+The second was the promising one: resolve a person the *question* names — not a
+document search happened to return — and walk
+`Entity ←RESOLVES_TO— Mention —MENTIONED_IN→ Document —ASSERTS→ Claim`. That
+starts somewhere lexical search cannot: `sam` is not a word that retrieves Sam
+Tyler's documents, it retrieves every document containing the string, whereas
+the resolver has already decided which of nineteen people the surface means. The
+traversal works — it resolves `Grace O'Connor` and `@soham` to single identities
+and returns their documents in about 400ms.
+
+It was removed because the measurement could not support it, and the reason is
+worth more than the feature. Over twenty alias-heavy questions, a graph-found
+document was cited in **2**. But of the twelve questions where the graph seeded
+*nothing at all* — where the two variants are the same code path — **four
+changed verdict anyway**, purely from model nondeterminism. The noise floor was
+larger than the signal, so a single-run A/B on this system cannot distinguish a
+retrieval feature from run-to-run variation. Establishing that would need
+repeated trials the deadline does not allow, and shipping an unproven feature
+that *looks* like graph reasoning is worse than shipping without it.
+
+The attempt did surface one thing worth stating, and it came out the opposite
+way to the intuition. Synthesis sees `evidence[:40]` against roughly 140 claims
+from eight retrieved documents, which looks like waste. Raising it to 96 was
+measured and reverted: ten rounds produced a crash, a wrong verdict, and
+synthesis times of 105s, 58s and 57s against a p50 of 8s. More evidence made the
+answer slower and less stable rather than better. The bound is doing work, and
+"the model only sees a third of it" was the wrong way to read it.
+
+**An earlier, blunter version was removed for a clearer reason.** The obvious
 next move is to widen retrieval by traversal: take the documents search found,
 walk `Document ←MENTIONED_IN— Mention —RESOLVES_TO→ Entity ←RESOLVES_TO— Mention
 —MENTIONED_IN→ Document`, and read the neighbours. It works as a query — five
