@@ -15,6 +15,11 @@
 # the Results section.
 /artifacts/*
 !/artifacts/retrieval_summary.json
+# Measurement evidence for claims the README makes. Without these the
+# negative results are unreproducible from a clone.
+!/artifacts/seed_ablation.json
+!/artifacts/recall_by_budget.json
+!/artifacts/identity_eval.json
 # Raw dataset excerpts dumped for parser design. Never staged: committed
 # fixtures are small synthetic documents, not corpus text.
 /inspect/

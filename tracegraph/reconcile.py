@@ -184,14 +184,35 @@ def reconcile_conflicts(client: HydraClient, run_id: str, dsids, *,
     if not conflicts:
         return report
 
-    # An edge means "these two claims disagree", so it is only drawn between
-    # *different* versions. Pairing every claim inside a contested fact also
-    # joined claims that agree — two documents corroborating one value became a
-    # dispute between them. The answer reader filtered those out by comparing
-    # values, which hid the defect rather than fixing it: the graph still held
-    # edges asserting something false, and anything else reading them believed
-    # it. Today no contested fact happens to have two claims on one value; the
-    # moment corroboration appears, it would.
+    pending, edges = conflict_edge_rows(conflicts, run_id)
+
+    if edges:
+        upsert_edges(client, "CONFLICTS_WITH", edges,
+                     job=f"reconcile:{run_id}:{min(sorted(targets))}:{len(edges)}",
+                     source_label=CLAIM, target_label=CLAIM,
+                     properties=["predicate", "subject", "decided", "margin",
+                                 "run_id"])
+        if registry is not None:
+            registry.register_many(pending)
+    report.edges_written = len(edges)
+    return report
+
+
+def conflict_edge_rows(conflicts, run_id: str) -> tuple[list, list[dict]]:
+    """The rows and identities for a set of contested facts.
+
+    One implementation, called by both writers. Having two was how the
+    same-value defect survived being fixed: the incremental reconciler stopped
+    pairing claims that agree, and the authoritative sweep kept doing it, so the
+    next full sweep would have recreated every edge the fix removed.
+
+    An edge means "these two claims disagree", so it is drawn only *between*
+    value groups, never within one. Two documents asserting the same value
+    corroborate each other; joining them with a conflict edge asserts something
+    false, and the answer reader's habit of filtering those by comparing values
+    hid that rather than fixing it — the graph still held the false edge and
+    anything else reading it believed it.
+    """
     pending, edges, seen = [], [], set()
     for conflict in conflicts:
         versions = [sorted({c.claim_id for c in version.claims})
@@ -215,17 +236,7 @@ def reconcile_conflicts(client: HydraClient, run_id: str, dsids, *,
                             "margin": round(conflict.margin, 4),
                             "run_id": run_id,
                         })
-
-    if edges:
-        upsert_edges(client, "CONFLICTS_WITH", edges,
-                     job=f"reconcile:{run_id}:{min(sorted(targets))}:{len(edges)}",
-                     source_label=CLAIM, target_label=CLAIM,
-                     properties=["predicate", "subject", "decided", "margin",
-                                 "run_id"])
-        if registry is not None:
-            registry.register_many(pending)
-    report.edges_written = len(edges)
-    return report
+    return pending, edges
 
 
 def prune_superseded(client: HydraClient, run_id: str,

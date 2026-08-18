@@ -1,0 +1,543 @@
+{
+  "questions": 20,
+  "seeded_document_cited": 2,
+  "verdict_changed": 9,
+  "rows": [
+    {
+      "question": "What is Grace O'Connor's role at Redwood?",
+      "surfaces": [
+        "Grace O'Connor",
+        "Redwood"
+      ],
+      "fts_only": {
+        "answerability": "insufficient",
+        "citations": [],
+        "claims": 0,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 55.5
+      },
+      "tracegraph": {
+        "answerability": "conflicting",
+        "citations": [
+          "dsid_0f27465b3dab45529dff56b3e69188a4",
+          "dsid_397dd2c186df429c8b8203a3569d841d"
+        ],
+        "claims": 20,
+        "seeded": [
+          "dsid_4767ababbb6b481aac9d49878b3b010b",
+          "dsid_6b6917bf2dac4f2a9e6d29198779ca67"
+        ],
+        "seeded_cited": [],
+        "seconds": 10.3
+      }
+    },
+    {
+      "question": "What has Marissa Cole been responsible for?",
+      "surfaces": [
+        "Marissa Cole"
+      ],
+      "fts_only": {
+        "answerability": "conflicting",
+        "citations": [
+          "dsid_4980c115d3404b2aa2f2845bc175c090",
+          "dsid_bf88f83db8b6462e8b684432fffbfe4c",
+          "dsid_3c5649002534436087bf4a19169f857e"
+        ],
+        "claims": 20,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 10.8
+      },
+      "tracegraph": {
+        "answerability": "conflicting",
+        "citations": [
+          "dsid_0382a5dc1d7d45e6a059ac9ab45a9dbc",
+          "dsid_4980c115d3404b2aa2f2845bc175c090",
+          "dsid_0776f91f69bb48828e74c4e2dcaf19ef"
+        ],
+        "claims": 20,
+        "seeded": [
+          "dsid_0382a5dc1d7d45e6a059ac9ab45a9dbc",
+          "dsid_0776f91f69bb48828e74c4e2dcaf19ef"
+        ],
+        "seeded_cited": [
+          "dsid_0382a5dc1d7d45e6a059ac9ab45a9dbc",
+          "dsid_0776f91f69bb48828e74c4e2dcaf19ef"
+        ],
+        "seconds": 11.7
+      }
+    },
+    {
+      "question": "What did Karthik Iyer work on?",
+      "surfaces": [
+        "Karthik Iyer"
+      ],
+      "fts_only": {
+        "answerability": "insufficient",
+        "citations": [],
+        "claims": 0,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 5.2
+      },
+      "tracegraph": {
+        "answerability": "conflicting",
+        "citations": [
+          "dsid_0d383a8d6d00494ea1e46b3c37e73c4f",
+          "dsid_19e5066219f34bcab2b75742ad9b9b18",
+          "dsid_bd5debb542f247caaf96ee035b722b49"
+        ],
+        "claims": 20,
+        "seeded": [
+          "dsid_0d383a8d6d00494ea1e46b3c37e73c4f",
+          "dsid_1d99a00f72af4ad183b7290556fb76ce"
+        ],
+        "seeded_cited": [
+          "dsid_0d383a8d6d00494ea1e46b3c37e73c4f"
+        ],
+        "seconds": 9.3
+      }
+    },
+    {
+      "question": "What is Ben Carter's title?",
+      "surfaces": [
+        "Ben Carter"
+      ],
+      "fts_only": {
+        "answerability": "conflicting",
+        "citations": [
+          "dsid_79d130d6fd9c4888b6e10f3ee64264b7",
+          "dsid_3adcb59154a648b9b3e2701bde79350b"
+        ],
+        "claims": 20,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 56.8
+      },
+      "tracegraph": {
+        "answerability": "insufficient",
+        "citations": [],
+        "claims": 0,
+        "seeded": [
+          "dsid_0382a5dc1d7d45e6a059ac9ab45a9dbc",
+          "dsid_0778d1a7d8674988992249d38321b3c6"
+        ],
+        "seeded_cited": [],
+        "seconds": 9.0
+      }
+    },
+    {
+      "question": "What did Laura Bennett decide?",
+      "surfaces": [
+        "Laura Bennett"
+      ],
+      "fts_only": {
+        "answerability": "insufficient",
+        "citations": [],
+        "claims": 0,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 7.3
+      },
+      "tracegraph": {
+        "answerability": "insufficient",
+        "citations": [],
+        "claims": 0,
+        "seeded": [
+          "dsid_1bd3a5c96b4b4fce94aa79608afc84fc",
+          "dsid_1d41afdb65f7420393c29a6a4924c712"
+        ],
+        "seeded_cited": [],
+        "seconds": 8.1
+      }
+    },
+    {
+      "question": "What is Anil Shah involved in?",
+      "surfaces": [
+        "Anil Shah"
+      ],
+      "fts_only": {
+        "answerability": "supported",
+        "citations": [
+          "dsid_9e73cd31f50b455692243ef9f6c2ed0b"
+        ],
+        "claims": 10,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 7.8
+      },
+      "tracegraph": {
+        "answerability": "insufficient",
+        "citations": [],
+        "claims": 0,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 4.6
+      }
+    },
+    {
+      "question": "What did Anna Liu approve?",
+      "surfaces": [
+        "Anna Liu"
+      ],
+      "fts_only": {
+        "answerability": "insufficient",
+        "citations": [],
+        "claims": 0,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 7.1
+      },
+      "tracegraph": {
+        "answerability": "insufficient",
+        "citations": [],
+        "claims": 0,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 6.5
+      }
+    },
+    {
+      "question": "What is Priya Sharma responsible for?",
+      "surfaces": [
+        "Priya Sharma"
+      ],
+      "fts_only": {
+        "answerability": "conflicting",
+        "citations": [
+          "dsid_4dc7cf5704b34a749bbff4dcfe4014f2",
+          "dsid_315992811ab54631863a22922533c783",
+          "dsid_ab2146051ddb42cbb1ef1db2f6af678a",
+          "dsid_377b30352c084a52b4807fc3e17dbe4a"
+        ],
+        "claims": 20,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 12.1
+      },
+      "tracegraph": {
+        "answerability": "conflicting",
+        "citations": [
+          "dsid_315992811ab54631863a22922533c783",
+          "dsid_ab2146051ddb42cbb1ef1db2f6af678a",
+          "dsid_377b30352c084a52b4807fc3e17dbe4a"
+        ],
+        "claims": 20,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 9.1
+      }
+    },
+    {
+      "question": "What did Elena Rossi report?",
+      "surfaces": [
+        "Elena Rossi"
+      ],
+      "fts_only": {
+        "answerability": "insufficient",
+        "citations": [],
+        "claims": 0,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 10.3
+      },
+      "tracegraph": {
+        "answerability": "insufficient",
+        "citations": [],
+        "claims": 0,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 9.6
+      }
+    },
+    {
+      "question": "What is Alex Chen working on?",
+      "surfaces": [
+        "Alex Chen"
+      ],
+      "fts_only": {
+        "answerability": "supported",
+        "citations": [
+          "dsid_34fb3e729e6b4217aad897a2113d7ccd",
+          "dsid_19fda8f4f8824c1fbe91a524306072b0",
+          "dsid_3bc92bf148134dea89971763e9aae7c2",
+          "dsid_5a27e2cface7421ba6fcfc1d7c29242d"
+        ],
+        "claims": 20,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 11.5
+      },
+      "tracegraph": {
+        "answerability": "insufficient",
+        "citations": [],
+        "claims": 0,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 7.8
+      }
+    },
+    {
+      "question": "What did Samir Patel escalate?",
+      "surfaces": [
+        "Samir Patel"
+      ],
+      "fts_only": {
+        "answerability": "insufficient",
+        "citations": [],
+        "claims": 0,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 8.8
+      },
+      "tracegraph": {
+        "answerability": "insufficient",
+        "citations": [],
+        "claims": 0,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 3.9
+      }
+    },
+    {
+      "question": "What is Marcus Lin accountable for?",
+      "surfaces": [
+        "Marcus Lin"
+      ],
+      "fts_only": {
+        "answerability": "conflicting",
+        "citations": [
+          "dsid_aadcf29f5e8d4e75bb0e4f6773cc6805",
+          "dsid_7cdf6226d34f40aa883d3f6c2fbec8b8"
+        ],
+        "claims": 20,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 7.8
+      },
+      "tracegraph": {
+        "answerability": "conflicting",
+        "citations": [
+          "dsid_aadcf29f5e8d4e75bb0e4f6773cc6805"
+        ],
+        "claims": 20,
+        "seeded": [
+          "dsid_33f5d654c96d4234bb222a7b3eed5cd5",
+          "dsid_3c4bcb4f4cbd446fa6652871c4d395ce"
+        ],
+        "seeded_cited": [],
+        "seconds": 7.5
+      }
+    },
+    {
+      "question": "What did Naomi Feldman review?",
+      "surfaces": [
+        "Naomi Feldman"
+      ],
+      "fts_only": {
+        "answerability": "insufficient",
+        "citations": [],
+        "claims": 0,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 5.2
+      },
+      "tracegraph": {
+        "answerability": "insufficient",
+        "citations": [],
+        "claims": 0,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 5.6
+      }
+    },
+    {
+      "question": "What is Camila Reyes leading?",
+      "surfaces": [
+        "Camila Reye"
+      ],
+      "fts_only": {
+        "answerability": "conflicting",
+        "citations": [
+          "dsid_78321925091844c0bf1f56faf066e919",
+          "dsid_2a940b6bf4a04db4928b02eef8e3c8f9",
+          "dsid_f9c10ab6d23646d3b9acde4e08462201"
+        ],
+        "claims": 20,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 8.5
+      },
+      "tracegraph": {
+        "answerability": "conflicting",
+        "citations": [
+          "dsid_d991c4cfd2a6426c949a0e0d4b7c0ee9",
+          "dsid_78321925091844c0bf1f56faf066e919",
+          "dsid_2a940b6bf4a04db4928b02eef8e3c8f9",
+          "dsid_f9c10ab6d23646d3b9acde4e08462201"
+        ],
+        "claims": 20,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 10.5
+      }
+    },
+    {
+      "question": "What did Rishi Malhotra gather?",
+      "surfaces": [
+        "Rishi Malhotra"
+      ],
+      "fts_only": {
+        "answerability": "insufficient",
+        "citations": [],
+        "claims": 0,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 4.7
+      },
+      "tracegraph": {
+        "answerability": "supported",
+        "citations": [
+          "dsid_997ed7d82d7842ee93e3411a1ed82e9d",
+          "dsid_235ca31be7e248cab9bc65ba71555b13"
+        ],
+        "claims": 19,
+        "seeded": [
+          "dsid_12bac9237a11494595ad7690dbae2b55",
+          "dsid_1d41afdb65f7420393c29a6a4924c712"
+        ],
+        "seeded_cited": [],
+        "seconds": 9.0
+      }
+    },
+    {
+      "question": "What is Sarah Lim handling?",
+      "surfaces": [
+        "Sarah Lim"
+      ],
+      "fts_only": {
+        "answerability": "conflicting",
+        "citations": [
+          "dsid_0776f91f69bb48828e74c4e2dcaf19ef",
+          "dsid_8f25b94324b842d786f4f44a39adfb3e"
+        ],
+        "claims": 20,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 7.8
+      },
+      "tracegraph": {
+        "answerability": "supported",
+        "citations": [
+          "dsid_8f25b94324b842d786f4f44a39adfb3e",
+          "dsid_0776f91f69bb48828e74c4e2dcaf19ef"
+        ],
+        "claims": 20,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 7.5
+      }
+    },
+    {
+      "question": "What did Maya Patel raise?",
+      "surfaces": [
+        "Maya Patel"
+      ],
+      "fts_only": {
+        "answerability": "insufficient",
+        "citations": [],
+        "claims": 0,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 6.3
+      },
+      "tracegraph": {
+        "answerability": "insufficient",
+        "citations": [],
+        "claims": 0,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 3.7
+      }
+    },
+    {
+      "question": "What is Sophie Chen coordinating?",
+      "surfaces": [
+        "Sophie Chen"
+      ],
+      "fts_only": {
+        "answerability": "insufficient",
+        "citations": [],
+        "claims": 0,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 5.4
+      },
+      "tracegraph": {
+        "answerability": "insufficient",
+        "citations": [],
+        "claims": 0,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 4.3
+      }
+    },
+    {
+      "question": "What did Alicia Ramos sign off?",
+      "surfaces": [
+        "Alicia Ramo"
+      ],
+      "fts_only": {
+        "answerability": "insufficient",
+        "citations": [],
+        "claims": 0,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 8.4
+      },
+      "tracegraph": {
+        "answerability": "supported",
+        "citations": [
+          "dsid_cc9b8dd134814431ba0c8822a2da253e"
+        ],
+        "claims": 16,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 8.8
+      }
+    },
+    {
+      "question": "What is Aditya Rao delivering?",
+      "surfaces": [
+        "Aditya Rao"
+      ],
+      "fts_only": {
+        "answerability": "supported",
+        "citations": [
+          "dsid_0b262bb08f814e2785b6694eed388e91",
+          "dsid_849e7246caab47118b65c54a0f70bf2c",
+          "dsid_d148657a319246ebbdc13138b27977b0"
+        ],
+        "claims": 20,
+        "seeded": [],
+        "seeded_cited": [],
+        "seconds": 9.0
+      },
+      "tracegraph": {
+        "answerability": "conflicting",
+        "citations": [
+          "dsid_0b262bb08f814e2785b6694eed388e91",
+          "dsid_49d74e16afd74feea8fe6091728cc6fa"
+        ],
+        "claims": 20,
+        "seeded": [
+          "dsid_235ca31be7e248cab9bc65ba71555b13",
+          "dsid_2394c2ea8a384bb0bcce6886b8473b82"
+        ],
+        "seeded_cited": [],
+        "seconds": 9.2
+      }
+    }
+  ]
+}

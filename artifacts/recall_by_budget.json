@@ -1,0 +1,41 @@
+{
+  "4": {
+    "mean": 0.5866784869976359,
+    "by_type": {
+      "basic": 0.7028571428571428,
+      "semantic": 0.312,
+      "intra_document_reasoning": 0.85,
+      "project_related": 0.43090277777777775,
+      "constrained": 0.7666666666666667,
+      "conflicting_info": 0.8,
+      "completeness": 0.32513888888888887,
+      "miscellaneous": 0.85
+    }
+  },
+  "8": {
+    "mean": 0.6712174940898346,
+    "by_type": {
+      "basic": 0.7714285714285715,
+      "semantic": 0.424,
+      "intra_document_reasoning": 0.875,
+      "project_related": 0.5992361111111111,
+      "constrained": 0.8333333333333334,
+      "conflicting_info": 0.8,
+      "completeness": 0.4751388888888889,
+      "miscellaneous": 0.9
+    }
+  },
+  "20": {
+    "mean": 0.7360047281323877,
+    "by_type": {
+      "basic": 0.8171428571428572,
+      "semantic": 0.488,
+      "intra_document_reasoning": 0.925,
+      "project_related": 0.7683333333333333,
+      "constrained": 0.8833333333333333,
+      "conflicting_info": 0.9,
+      "completeness": 0.5844444444444444,
+      "miscellaneous": 0.9
+    }
+  }
+}

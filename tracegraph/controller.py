@@ -27,6 +27,12 @@ from .hydra_client import HydraClient, parse_bookmark
 from .ids import IdRegistry
 from .llm import Evidence, synthesise_answer
 
+# Disputes are read a page at a time because the filter that matters — is this
+# a fact the answer actually used — runs after the read. A flat limit would cut
+# before that filter.
+_DISPUTE_PAGE = 60
+_DISPUTE_MAX_PAGES = 20
+
 SUPPORTED = "supported"
 INSUFFICIENT = "insufficient"
 CONFLICTING = "conflicting"
@@ -74,7 +80,7 @@ class AnswerController:
 
     def __init__(self, client: HydraClient, run_id: str, *, max_documents: int = 8,
                  ingestor=None, ingest_budget: int = 4,
-                 evidence_window: int = 96) -> None:
+                 evidence_window: int = 40) -> None:
         self.client = client
         self.run_id = run_id
         self.max_documents = max_documents
@@ -212,8 +218,7 @@ class AnswerController:
         # Every cited document, not the first four. An answer citing documents
         # five through eight could otherwise be called `supported` while resting
         # on a fact the graph records as disputed — a silent wrong verdict,
-        # which is the one failure this whole path exists to prevent. Retrieval
-        # keeps at most eight, so the bound is the citation set itself.
+        # which is the one failure this whole path exists to prevent.
         for dsid in sorted({c["dsid"] for c in claims}):
             for direction, pattern in (
                 ("outgoing",
@@ -223,41 +228,47 @@ class AnswerController:
                  "MATCH (d:Document {dsid: $dsid})-[:ASSERTS]->(a:Claim)"
                  "<-[e:CONFLICTS_WITH]-(b:Claim) "),
             ):
-                rows = self._run(
-                    f"contested_claims({direction})",
-                    pattern +
-                    "WHERE d.run_id = $r AND e.run_id = $r "
-                    "RETURN a.subject AS subject, a.predicate AS predicate, "
-                    "a.object AS cited_value, b.object AS rival_value, "
-                    "b.dsid AS rival_dsid, e.decided AS decided, "
-                    # Ordered, so a document with more disputes than the limit
-                    # yields the same ones every time rather than an arbitrary
-                    # slice that changes the verdict between identical runs.
-                    "e.margin AS margin ORDER BY b.id LIMIT 60",
-                    {"dsid": dsid, "r": self.run_id},
-                    hops=2,
-                )
-                for row in rows:
-                    if (row["subject"], row["predicate"]) not in wanted:
-                        continue
-                    # Two documents saying the same thing corroborate; only a
-                    # different value is a disagreement.
-                    if row["cited_value"] == row["rival_value"]:
-                        continue
-                    if asserted_in is not None and not _states(
-                            asserted_in, row["cited_value"]):
-                        continue
-                    pair = (row["subject"], row["predicate"], row["rival_value"])
-                    found.setdefault(pair, {
-                        "subject": row["subject"],
-                        "predicate": row["predicate"],
-                        "cited_value": row["cited_value"],
-                        "rival_value": row["rival_value"],
-                        "cited_dsid": dsid,
-                        "rival_dsid": row["rival_dsid"],
-                        "decided": bool(row["decided"]),
-                        "margin": row["margin"],
-                    })
+                # Paged rather than capped. Narrowing to the facts the answer
+                # used happens below, in Python, so a flat limit here cuts
+                # before the filter — it can discard the one dispute that
+                # matters and keep sixty that do not. The document anchor keeps
+                # each page a typed adjacency walk rather than a label scan.
+                for page in range(_DISPUTE_MAX_PAGES):
+                    rows = self._run(
+                        f"contested_claims({direction})",
+                        pattern +
+                        "WHERE d.run_id = $r AND e.run_id = $r "
+                        "RETURN a.subject AS subject, a.predicate AS predicate, "
+                        "a.object AS cited_value, b.object AS rival_value, "
+                        "b.dsid AS rival_dsid, e.decided AS decided, "
+                        "e.margin AS margin ORDER BY b.id "
+                        f"SKIP {page * _DISPUTE_PAGE} LIMIT {_DISPUTE_PAGE}",
+                        {"dsid": dsid, "r": self.run_id},
+                        hops=2,
+                    )
+                    for row in rows:
+                        if (row["subject"], row["predicate"]) not in wanted:
+                            continue
+                        # Two documents saying the same thing corroborate; only
+                        # a different value is a disagreement.
+                        if row["cited_value"] == row["rival_value"]:
+                            continue
+                        if asserted_in is not None and not _states(
+                                asserted_in, row["cited_value"]):
+                            continue
+                        pair = (row["subject"], row["predicate"], row["rival_value"])
+                        found.setdefault(pair, {
+                            "subject": row["subject"],
+                            "predicate": row["predicate"],
+                            "cited_value": row["cited_value"],
+                            "rival_value": row["rival_value"],
+                            "cited_dsid": dsid,
+                            "rival_dsid": row["rival_dsid"],
+                            "decided": bool(row["decided"]),
+                            "margin": row["margin"],
+                        })
+                    if len(rows) < _DISPUTE_PAGE:
+                        break
         return list(found.values())[:6]
 
     # --- validation ---------------------------------------------------------

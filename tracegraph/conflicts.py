@@ -137,6 +137,10 @@ class Conflict:
     best: Version | None
     margin: float
     reason: str
+    # Which component actually separated the winner: "authority" when a system
+    # of record settled it, "recency" when a later version won on being later,
+    # "weighted" when the combined score decided, and "" when nothing did.
+    basis: str = ""
 
     @property
     def decided(self) -> bool:
@@ -148,7 +152,13 @@ class Conflict:
             "predicate": self.predicate.name,
             "mutable": self.predicate.mutable,
             "decided": self.decided,
-            "supersession": self.predicate.mutable and self.decided,
+            # What actually settled it, not a guess from the predicate's type.
+            # `supersession` used to mean "mutable and decided", which reported
+            # supersession for decisions recency had no part in — both currently
+            # decided conflicts are authority calls on a system of record, and
+            # both claimed to be supersessions.
+            "basis": self.basis,
+            "supersession": self.basis == "recency",
             "reason": self.reason,
             "margin": round(self.margin, 3),
             "versions": [
@@ -362,7 +372,7 @@ def detect_conflicts(
                           if c.source_type in predicate.authority)
             conflicts.append(Conflict(
                 subject=claims[0].subject.strip(), predicate=predicate,
-                versions=[best, *others], best=best,
+                versions=[best, *others], best=best, basis="authority",
                 margin=best.trust.score - others[0].trust.score,
                 reason=(
                     f"{best.display!r} comes from {source}, the system of record "
@@ -375,8 +385,10 @@ def detect_conflicts(
         best, runner_up = versions[0], versions[1]
         margin = best.trust.score - runner_up.trust.score
 
+        basis = ""
         if margin >= DECISIVE_MARGIN:
             if predicate.mutable and best.trust.recency > runner_up.trust.recency:
+                basis = "recency"
                 # A later statement about a changeable fact is normally not a
                 # rival version but the current one. Saying so is more useful
                 # than declaring the older claim wrong, and it is what the
@@ -386,10 +398,8 @@ def detect_conflicts(
                     f"others are earlier and read as superseded"
                 )
             else:
-                reason = (
-                    f"{best.display!r} leads on "
-                    f"{_leading_component(best.trust, runner_up.trust)}"
-                )
+                basis = _leading_component(best.trust, runner_up.trust)
+                reason = f"{best.display!r} leads on {basis}"
             decided = best
         else:
             reason = (
@@ -401,6 +411,7 @@ def detect_conflicts(
         conflicts.append(Conflict(
             subject=claims[0].subject.strip(), predicate=predicate,
             versions=versions, best=decided, margin=margin, reason=reason,
+            basis=basis,
         ))
 
     conflicts.sort(key=lambda c: -len(c.versions))

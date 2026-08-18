@@ -152,11 +152,17 @@ Crying wolf costs exactly what silence costs.
 answer path — which walks persisted edges — could only see disputes that existed
 then. A disagreement introduced by a document a question had just reached was
 invisible, and under `--fast`, where nothing is preloaded, every disagreement
-was: 23 edges for 2,606 claims. On-demand ingestion now re-adjudicates the facts
-its documents touch, once per batch, and the graph holds 234 edges for 3,154
-claims — fewer than the 375 an earlier, looser rule produced, because 31 of
-those joined two different people and 181 more did not survive the corrected
-grouping. `scripts/55_conflicts.py` remains for a full sweep; the two agree because
+was: 23 edges for 2,606 claims. On-demand ingestion now re-adjudicates the facts its
+documents touch, once per batch.
+
+Counts here are a snapshot of a graph that grows as questions are asked, so they
+are stated with the epoch they were taken at rather than as standing facts. At
+**read_epoch 13015, 176 claim-bearing documents, 3,330 claims**: 115 contested
+facts, 775 persisted `CONFLICTS_WITH` edges, 2 decided. The gate asserts the
+detector and the graph agree exactly — 775 detected, 775 persisted, 0 missing —
+because a panel that recomputes disputes while answers walk stored edges can
+otherwise show a conflict the answer cannot see. Thirty-one edges were missing
+when that check was first written. `scripts/55_conflicts.py` remains for a full sweep; the two agree because
 both call the same detector and edge ids are deterministic, so a pair judged
 twice converges on one edge.
 

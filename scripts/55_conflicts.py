@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tracegraph.conflicts import ClaimRecord, detect_conflicts
 from tracegraph.reconcile import (  # noqa: E402
+    conflict_edge_rows,
     load_claims as paged_claims,
     load_subject_identity,
     prune_superseded,
@@ -88,27 +89,13 @@ def main() -> int:
                   f"{[p for p, _ in stats['top_unmapped'][:5]]}")
 
         # --- write the conflict graph ---------------------------------------
-        pending, edges = [], []
-        seen: set[tuple[int, int]] = set()
-        for conflict in conflicts:
-            claim_ids = sorted(
-                {c.claim_id for version in conflict.versions for c in version.claims})
-            for i, left in enumerate(claim_ids):
-                for right in claim_ids[i + 1:]:
-                    if (left, right) in seen:
-                        continue
-                    seen.add((left, right))
-                    identity = edge_identity(
-                        "CONFLICTS_WITH", left, right, conflict.predicate.name)
-                    pending.append(identity)
-                    edges.append({
-                        "src": left, "dst": right, "eid": identity.id,
-                        "predicate": conflict.predicate.name,
-                        "subject": conflict.subject[:200],
-                        "decided": bool(conflict.decided),
-                        "margin": round(conflict.margin, 4),
-                        "run_id": run_id,
-                    })
+        #
+        # Through the same function the incremental reconciler uses. Two
+        # implementations is how the same-value defect survived being fixed once
+        # already: the reconciler stopped pairing claims that agree and this
+        # sweep kept doing it, so the next authoritative run would have put every
+        # removed edge back.
+        pending, edges = conflict_edge_rows(conflicts, run_id)
 
         if edges:
             registry.register_many(pending)

@@ -10,9 +10,9 @@ answers `supported` in thirty-nine rounds of forty came back `insufficient` in
 one, and an ablation found four verdicts in twelve moving between two runs of
 identical code. Failing on that measures the model's temperature, not the system.
 
-So verdicts are tallied per question and reported, and a question fails only if
-it *never* produces an acceptable one. What is asserted in every single round is
-what a viewer would actually notice going wrong:
+So verdicts are tallied per question against a 90% floor, rather than demanded
+every round or accepted if they ever appear at all. What is asserted in every
+single round is what a viewer would actually notice going wrong:
 
 * an abstention carries no citations and no claims;
 * a `conflicting` verdict names the competing version rather than just asserting
@@ -37,6 +37,12 @@ from tracegraph.controller import AnswerController  # noqa: E402
 from tracegraph.demo import DEMO_QUESTIONS as DEMO  # noqa: E402
 from tracegraph.hydra_client import HydraClient  # noqa: E402
 from tracegraph.ingest import OnDemandIngestor  # noqa: E402
+
+# How often a question must land in its acceptable verdict set. Not 100%:
+# synthesis is not deterministic and one wobble in forty was observed on a
+# question that is otherwise solid. Not "at least once" either — that would pass
+# a question answered wrongly nine times out of ten.
+MIN_VERDICT_RATE = 0.9
 
 
 def main() -> int:
@@ -145,20 +151,26 @@ def main() -> int:
 
         ingestor.close()
 
-    # A question that *never* produces an acceptable verdict is a real failure;
-    # one that usually does and occasionally wanders is the model, and the rate
-    # is reported so the wandering stays visible.
+    # A question must land in its acceptable set nearly every time.
+    #
+    # "At least once" was far too weak — a question wrong in nine rounds of ten
+    # would still have printed a clean run. The threshold is a rate, because
+    # synthesis is not deterministic and demanding perfection measures the
+    # model's temperature; 90% leaves room for the one wobble in forty that was
+    # actually observed while still failing anything genuinely broken.
     print()
     for question, entry in per_question.items():
         verdicts = entry["verdicts"]
         good = sum(1 for v in verdicts if v in entry["allowed"])
-        mark = "ok " if good else "FAIL"
-        print(f"  [{mark}] {good}/{len(verdicts)} in {sorted(entry['allowed'])}"
-              f"  {question[:44]}")
-        if not good:
+        rate = good / len(verdicts)
+        mark = "ok " if rate >= MIN_VERDICT_RATE else "FAIL"
+        print(f"  [{mark}] {good}/{len(verdicts)} ({rate:.0%}) in "
+              f"{sorted(entry['allowed'])}  {question[:40]}")
+        if rate < MIN_VERDICT_RATE:
             failures.append(
-                f"{question[:44]!r} never returned an acceptable verdict in "
-                f"{len(verdicts)} rounds; saw {sorted(set(verdicts))}")
+                f"{question[:44]!r} returned an acceptable verdict in only "
+                f"{good}/{len(verdicts)} rounds ({rate:.0%}, floor "
+                f"{MIN_VERDICT_RATE:.0%}); saw {sorted(set(verdicts))}")
 
     # At least one round must actually have produced a conflicting verdict.
     #

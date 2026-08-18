@@ -180,6 +180,33 @@ def main() -> int:
                f"{n_amb} mentions kept a competing candidate set, across "
                f"{n_amb_surfaces} distinct surfaces")
 
+        # The panel recomputes disputes from claims; answers walk persisted
+        # edges. When those disagree, the interface shows a conflict the answer
+        # cannot see — 31 edges were missing when this was first measured, over
+        # 15 fact groups. Exact equality, because "close" is indistinguishable
+        # from a detector that has quietly stopped writing.
+        from tracegraph.conflicts import ClaimRecord, detect_conflicts
+        from tracegraph.reconcile import (
+            conflict_edge_rows, load_claims, load_subject_identity,
+        )
+
+        records = [ClaimRecord(**row) for row in load_claims(client, run_id)]
+        stamps = {r.dsid: r.timestamp for r in records if r.timestamp}
+        detected, _ = detect_conflicts(
+            records, document_order=sorted(stamps, key=lambda d: stamps[d]),
+            subject_identity=load_subject_identity(client, run_id))
+        _, expected_rows = conflict_edge_rows(detected, run_id)
+        expected = {(row["src"], row["dst"]) for row in expected_rows}
+        persisted = {
+            (row["src"], row["dst"]) for row in client.bolt_read(
+                "MATCH (a:Claim)-[e:CONFLICTS_WITH]->(b:Claim) WHERE e.run_id = $r "
+                "RETURN a.id AS src, b.id AS dst LIMIT 20000", {"r": run_id})}
+        missing, extra = expected - persisted, persisted - expected
+        record("every detected conflict is persisted as an edge",
+               not missing and not extra,
+               f"{len(expected)} detected, {len(persisted)} persisted, "
+               f"{len(missing)} missing, {len(extra)} superseded")
+
         # --- bounded evidence path -------------------------------------------
         anchor = client.bolt_read(
             "MATCH (e:Entity)-[r:PARTICIPATED_IN]->(c:Channel) WHERE r.run_id = $r "
