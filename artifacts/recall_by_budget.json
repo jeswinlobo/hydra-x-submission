@@ -1,41 +1,146 @@
 {
-  "4": {
-    "mean": 0.5866784869976359,
-    "by_type": {
-      "basic": 0.7028571428571428,
-      "semantic": 0.312,
-      "intra_document_reasoning": 0.85,
-      "project_related": 0.43090277777777775,
-      "constrained": 0.7666666666666667,
-      "conflicting_info": 0.8,
-      "completeness": 0.32513888888888887,
-      "miscellaneous": 0.85
-    }
+  "note": "Recorded run of scripts/76_recall_by_budget.py over the full corpus. One search per question at limit 20; smaller budgets are prefixes of that ranking. Per-question rows are omitted.",
+  "searched_limit": 20,
+  "questions": 470,
+  "latency_ms": {
+    "p50": 3744.9255239989725,
+    "p95": 6243.289396999899
   },
-  "8": {
-    "mean": 0.6712174940898346,
-    "by_type": {
-      "basic": 0.7714285714285715,
-      "semantic": 0.424,
-      "intra_document_reasoning": 0.875,
-      "project_related": 0.5992361111111111,
-      "constrained": 0.8333333333333334,
-      "conflicting_info": 0.8,
-      "completeness": 0.4751388888888889,
-      "miscellaneous": 0.9
-    }
-  },
-  "20": {
-    "mean": 0.7360047281323877,
-    "by_type": {
-      "basic": 0.8171428571428572,
-      "semantic": 0.488,
-      "intra_document_reasoning": 0.925,
-      "project_related": 0.7683333333333333,
-      "constrained": 0.8833333333333333,
-      "conflicting_info": 0.9,
-      "completeness": 0.5844444444444444,
-      "miscellaneous": 0.9
+  "budgets": {
+    "4": {
+      "k": 4,
+      "questions": 470,
+      "mean_recall": 0.5866784869976359,
+      "any_hit": 311,
+      "any_hit_pct": 0.6617021276595745,
+      "full_recall": 250,
+      "full_recall_pct": 0.5319148936170213,
+      "median_first_rank": 1,
+      "ranked_questions": 311,
+      "by_type": {
+        "basic": {
+          "n": 175,
+          "mean_recall": 0.7028571428571428
+        },
+        "semantic": {
+          "n": 125,
+          "mean_recall": 0.312
+        },
+        "intra_document_reasoning": {
+          "n": 40,
+          "mean_recall": 0.85
+        },
+        "project_related": {
+          "n": 40,
+          "mean_recall": 0.43090277777777775
+        },
+        "constrained": {
+          "n": 30,
+          "mean_recall": 0.7666666666666667
+        },
+        "conflicting_info": {
+          "n": 20,
+          "mean_recall": 0.8
+        },
+        "completeness": {
+          "n": 20,
+          "mean_recall": 0.32513888888888887
+        },
+        "miscellaneous": {
+          "n": 20,
+          "mean_recall": 0.85
+        }
+      }
+    },
+    "8": {
+      "k": 8,
+      "questions": 470,
+      "mean_recall": 0.6712174940898346,
+      "any_hit": 343,
+      "any_hit_pct": 0.7297872340425532,
+      "full_recall": 289,
+      "full_recall_pct": 0.6148936170212767,
+      "median_first_rank": 1,
+      "ranked_questions": 343,
+      "by_type": {
+        "basic": {
+          "n": 175,
+          "mean_recall": 0.7714285714285715
+        },
+        "semantic": {
+          "n": 125,
+          "mean_recall": 0.424
+        },
+        "intra_document_reasoning": {
+          "n": 40,
+          "mean_recall": 0.875
+        },
+        "project_related": {
+          "n": 40,
+          "mean_recall": 0.5992361111111111
+        },
+        "constrained": {
+          "n": 30,
+          "mean_recall": 0.8333333333333334
+        },
+        "conflicting_info": {
+          "n": 20,
+          "mean_recall": 0.8
+        },
+        "completeness": {
+          "n": 20,
+          "mean_recall": 0.4751388888888889
+        },
+        "miscellaneous": {
+          "n": 20,
+          "mean_recall": 0.9
+        }
+      }
+    },
+    "20": {
+      "k": 20,
+      "questions": 470,
+      "mean_recall": 0.7360047281323877,
+      "any_hit": 364,
+      "any_hit_pct": 0.774468085106383,
+      "full_recall": 325,
+      "full_recall_pct": 0.6914893617021277,
+      "median_first_rank": 1,
+      "ranked_questions": 364,
+      "by_type": {
+        "basic": {
+          "n": 175,
+          "mean_recall": 0.8171428571428572
+        },
+        "semantic": {
+          "n": 125,
+          "mean_recall": 0.488
+        },
+        "intra_document_reasoning": {
+          "n": 40,
+          "mean_recall": 0.925
+        },
+        "project_related": {
+          "n": 40,
+          "mean_recall": 0.7683333333333333
+        },
+        "constrained": {
+          "n": 30,
+          "mean_recall": 0.8833333333333333
+        },
+        "conflicting_info": {
+          "n": 20,
+          "mean_recall": 0.9
+        },
+        "completeness": {
+          "n": 20,
+          "mean_recall": 0.5844444444444444
+        },
+        "miscellaneous": {
+          "n": 20,
+          "mean_recall": 0.9
+        }
+      }
     }
   }
 }

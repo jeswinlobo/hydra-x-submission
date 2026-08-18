@@ -2,828 +2,298 @@
   "run_id": "run1786954555",
   "oracle": "eval-oracle/employee_directory.yaml",
   "matching_rule": {
-    "entity_to_employee": "An Entity matches an employee when their identity keys intersect on exactly one employee. Keys are (a) an exact email address, (b) the token set of a name or email local part with two or more tokens, accents and honorifics folded, and (c) the letters-only squash of the same, which settles O'Connor/oconnor and El-Sayed/elsayed. Name-shaped keys are taken from an Entity's addresses only when the address sits on a domain whose root starts with 'redwood', so priya.sharma@mediloop.com cannot be read as the Redwood employee of the same name. A key claimed by two employees is dropped from the index; an Entity hitting two employees is recorded as a false merge and mapped to neither.",
-    "mention_to_employee": "Strict gold uses two labellers that must agree: the address the document attached to the mention (tier-1 evidence, read off a mail header) and the mention surface when it carries two or more name tokens. A mention with neither is excluded as out of scope, not counted wrong. Lenient gold additionally labels a one-token surface that exactly one employee answers to; it assumes the referent is an employee, which the corpus does not guarantee, so it is reported separately and never in the headline numbers.",
-    "clusters": "System cluster = the Entity a Mention resolved to. An unresolved mention is a singleton, so abstention costs recall rather than being silently excluded. Gold cluster = the employee."
+    "entity_to_employee": "An Entity matches an employee when their identity keys intersect on exactly one employee. Keys are (a) an exact email address, (b) the token set of a name or email local part of two or more tokens, accents and honorifics folded, and (c) the letters-only squash of the same, which settles O'Connor/oconnor and El-Sayed/elsayed. Name-shaped keys are taken from an Entity's addresses only when the address sits on a domain whose root starts with 'redwood', so priya.sharma@mediloop.com cannot be read as the Redwood employee of that name. A key claimed by two employees is dropped from the index; an Entity hitting two employees is recorded as a false merge and mapped to neither.",
+    "mention_to_employee_strict": "In order: (1) the address the document attached to the mention, when it matches an employee; (2) an internal address plus a full-name surface, which covers grace@redwood.com; (3) a full-name surface on a mention carrying no address. A mention whose address is external is excluded outright even when its surface matches an employee's name \u2014 that is the namesake trap. Where both labellers speak and disagree the mention is dropped.",
+    "mention_to_employee_lenient": "Strict, plus a one-token surface that exactly one employee answers to. Assumes the referent is an employee, which this corpus does not guarantee. Never used for a headline number.",
+    "clusters": "System cluster = the Entity a Mention resolved to; an unresolved mention is a singleton, so abstention costs recall. Gold cluster = the employee."
   },
   "coverage": {
     "oracle_people": 167,
-    "graph_entities": 1251,
+    "graph_entities": 1257,
     "graph_mentions": 10321,
-    "entities_matched_to_oracle": 101,
-    "entities_matching_two_or_more_people": 0,
-    "entities_out_of_scope": 1150,
-    "mentions_with_strict_gold": 3001,
-    "mentions_with_strict_gold_pct": 29.076639860478636,
-    "mentions_excluded_no_oracle_referent": 7320,
-    "mentions_excluded_label_conflict": 0,
-    "mentions_with_lenient_gold": 4203,
+    "entities_matched_to_an_employee": 106,
+    "entities_matching_two_or_more_employees": 0,
+    "entities_out_of_scope": 1151,
+    "mentions_with_strict_gold": 2965,
+    "mentions_with_strict_gold_pct": 28.7278364499564,
+    "mentions_with_lenient_gold": 4167,
+    "mentions_with_lenient_gold_pct": 40.373994767948844,
+    "mentions_excluded": 7356,
+    "exclusion_reasons": {
+      "address_outside_directory": 1558,
+      "surface_ambiguous_or_absent": 3366,
+      "lenient_only_single_token": 1202,
+      "surface_names_nobody_in_directory": 1174,
+      "internal_address_unmatched": 20,
+      "external_namesake": 36
+    },
     "gold_label_sources": {
       "email_anchor": 2728,
-      "name_anchor": 273
+      "name_anchor_internal_address": 237
     },
-    "oracle_people_seen_via_entities": 53,
-    "oracle_people_seen_via_scored_mentions": 60,
-    "bot_mentions_excluded_by_system": 677,
-    "directory_keys_dropped_as_ambiguous": []
-  },
-  "metrics": {
-    "with_abstention_as_singletons": {
-      "pairwise": {
-        "mentions": 3001,
-        "tp": 345840,
-        "fp": 0,
-        "fn": 124749,
-        "tn": 4030911,
-        "precision": 1.0,
-        "recall": 0.7349088057731906,
-        "f1": 0.8472016550122545
+    "employees_seen_via_entities": 53,
+    "employees_seen_via_strict_mentions": 53,
+    "employees_seen_via_lenient_mentions": 83,
+    "bot_mentions_the_system_already_skips": 677,
+    "directory_keys_dropped_as_ambiguous": [],
+    "external_namesake_examples": [
+      {
+        "surface": "Priya Shah",
+        "address": "priya.shah@nimbleops.com",
+        "would_have_been": "Priya Shah"
       },
-      "bcubed": {
-        "mentions": 3001,
-        "precision": 1.0,
-        "recall": 0.8207478499128835,
-        "f1": 0.9015502612864856
+      {
+        "surface": "Vikram Singh",
+        "address": "vikram.singh@deepapp.io",
+        "would_have_been": "Vikram Singh"
+      },
+      {
+        "surface": "Emily Zhao",
+        "address": "emily.zhao@quirksoft.com",
+        "would_have_been": "Emily Zhao"
+      },
+      {
+        "surface": "Priya Shah",
+        "address": "priya@skylarkhealth.com",
+        "would_have_been": "Priya Shah"
+      },
+      {
+        "surface": "Jordan Lee",
+        "address": "jordan.lee@acmecorp.com",
+        "would_have_been": "Jordan Lee"
+      },
+      {
+        "surface": "Alyssa Monroe",
+        "address": "alyssa@acmehealth.io",
+        "would_have_been": "Alyssa Monroe"
       }
-    },
-    "resolved_only": {
-      "pairwise": {
-        "mentions": 3001,
-        "tp": 345840,
-        "fp": 0,
-        "fn": 124749,
-        "tn": 4030911,
-        "precision": 1.0,
-        "recall": 0.7349088057731906,
-        "f1": 0.8472016550122545
+    ]
+  },
+  "strict": {
+    "metrics": {
+      "with_abstention_as_singletons": {
+        "pairwise": {
+          "mentions": 2965,
+          "tp": 351248,
+          "fp": 0,
+          "fn": 119136,
+          "tn": 3923746,
+          "precision": 1.0,
+          "recall": 0.7467260791183373,
+          "f1": 0.8550007789375291
+        },
+        "bcubed": {
+          "mentions": 2965,
+          "precision": 1.0,
+          "recall": 0.8980183357444295,
+          "f1": 0.9462693998603696
+        }
       },
-      "bcubed": {
-        "mentions": 3001,
+      "resolved_only": {
+        "pairwise": {
+          "mentions": 2965,
+          "tp": 351248,
+          "fp": 0,
+          "fn": 119136,
+          "tn": 3923746,
+          "precision": 1.0,
+          "recall": 0.7467260791183373,
+          "f1": 0.8550007789375291
+        },
+        "bcubed": {
+          "mentions": 2965,
+          "precision": 1.0,
+          "recall": 0.8980183357444295,
+          "f1": 0.9462693998603696
+        }
+      },
+      "scored_mentions": 2965,
+      "scored_mentions_resolved": 2965,
+      "scored_mentions_abstained": 0
+    },
+    "false_merges": {
+      "count": 0,
+      "mentions_affected": 0,
+      "detail": []
+    },
+    "split_identities": {
+      "count": 1,
+      "people_with_scored_mentions": 53,
+      "detail": [
+        {
+          "person": "Grace O'Connor",
+          "email": "grace.oconnor@redwoodinference.com",
+          "fragments": 2,
+          "mentions": 788,
+          "detail": [
+            {
+              "entity_key": "email:grace.oconnor@redwood-inference.com",
+              "entity_name": "Grace O'Connor",
+              "mentions": 584
+            },
+            {
+              "entity_key": "email:grace_occonnor@redwood.ai",
+              "entity_name": "Grace Oconnor",
+              "mentions": 204
+            }
+          ]
+        }
+      ]
+    },
+    "precision_by_method": {
+      "strong_key_email": {
+        "scored_mentions": 2965,
+        "decidable": 2965,
+        "correct": 2965,
+        "wrong": 0,
+        "indeterminate": 0,
         "precision": 1.0,
-        "recall": 0.8207478499128835,
-        "f1": 0.9015502612864856
+        "examples_wrong": []
       }
     }
   },
-  "false_merges": {
-    "count": 0,
-    "mentions_affected": 0,
-    "entities_matching_two_or_more_employees": [],
-    "detail": []
-  },
-  "split_identities": {
-    "count": 34,
-    "people_with_scored_mentions": 60,
-    "detail": [
-      {
-        "person": "Priya Shah",
-        "email": "priya.shah@redwoodinference.com",
-        "fragments": 9,
-        "mentions": 15,
-        "detail": [
-          {
-            "entity_key": "email:priya.shah@mediscale.com",
-            "entity_name": "Priya Shah",
-            "mentions": 5
-          },
-          {
-            "entity_key": "email:priya@skylarkhealth.com",
-            "entity_name": "Priya Shah",
-            "mentions": 3
-          },
-          {
-            "entity_key": "email:priya.shah@silvergatehealth.com",
-            "entity_name": "Priya Shah",
-            "mentions": 1
-          },
-          {
-            "entity_key": "email:priya@finops.io",
-            "entity_name": "Priya Shah",
-            "mentions": 1
-          },
-          {
-            "entity_key": "email:priya@remedyhealth.com",
-            "entity_name": "Priya Shah",
-            "mentions": 1
-          },
-          {
-            "entity_key": "email:priya.shah@greenleaf-supplies.com",
-            "entity_name": "Priya Shah",
-            "mentions": 1
-          },
-          {
-            "entity_key": "email:priya.shah@aurelius.com",
-            "entity_name": "Priya Shah",
-            "mentions": 1
-          },
-          {
-            "entity_key": "email:priya.shah@nimbleops.com",
-            "entity_name": "Priya Shah",
-            "mentions": 1
-          },
-          {
-            "entity_key": "email:pshah@clearwave.com",
-            "entity_name": "Priya Shah",
-            "mentions": 1
-          }
-        ]
+  "lenient": {
+    "metrics": {
+      "with_abstention_as_singletons": {
+        "pairwise": {
+          "mentions": 4167,
+          "tp": 399686,
+          "fp": 0,
+          "fn": 174680,
+          "tn": 8105495,
+          "precision": 1.0,
+          "recall": 0.6958733629776136,
+          "f1": 0.8206666584535528
+        },
+        "bcubed": {
+          "mentions": 4167,
+          "precision": 1.0,
+          "recall": 0.761948849171369,
+          "f1": 0.8648932680760938
+        }
       },
-      {
-        "person": "Camila Reyes",
-        "email": "camila.reyes@redwoodinference.com",
-        "fragments": 6,
-        "mentions": 21,
-        "detail": [
-          {
-            "entity_key": "email:camila.reyes@redwood.ai",
-            "entity_name": "Camila Reyes",
-            "mentions": 10
-          },
-          {
-            "entity_key": "email:camila_reyes@redwood.inference.com",
-            "entity_name": "Camila Reyes",
-            "mentions": 4
-          },
-          {
-            "entity_key": "email:camila@redwood.com",
-            "entity_name": "Camila Reyes",
-            "mentions": 3
-          },
-          {
-            "entity_key": "email:camila.reyes@redwood.com",
-            "entity_name": "Camila Reyes",
-            "mentions": 2
-          },
-          {
-            "entity_key": "email:camila_reyes@redwoodinference.com",
-            "entity_name": "Camila Reyes",
-            "mentions": 1
-          },
-          {
-            "entity_key": "email:camila_reyes@redwood.com",
-            "entity_name": "camila_reyes@redwood.com",
-            "mentions": 1
-          }
-        ]
+      "resolved_only": {
+        "pairwise": {
+          "mentions": 3533,
+          "tp": 399686,
+          "fp": 0,
+          "fn": 120023,
+          "tn": 5719569,
+          "precision": 1.0,
+          "recall": 0.7690572993733031,
+          "f1": 0.869454369449475
+        },
+        "bcubed": {
+          "mentions": 3533,
+          "precision": 1.0,
+          "recall": 0.9119780666930024,
+          "f1": 0.9539628958928162
+        }
       },
-      {
-        "person": "Naomi Feldman",
-        "email": "naomi.feldman@redwoodinference.com",
-        "fragments": 6,
-        "mentions": 12,
-        "detail": [
-          {
-            "entity_key": "email:naomi.feldman@redwood.com",
-            "entity_name": "Naomi Feldman",
-            "mentions": 3
-          },
-          {
-            "entity_key": "email:naomi_feldman@redwood.ai",
-            "entity_name": "Naomi Feldman",
-            "mentions": 3
-          },
-          {
-            "entity_key": "email:naomi.feldman@naomi.feldman@redwood.com",
-            "entity_name": "Naomi Feldman",
-            "mentions": 2
-          },
-          {
-            "entity_key": "email:naomi.feldman@redwood.ai",
-            "entity_name": "Naomi Feldman",
-            "mentions": 2
-          },
-          {
-            "entity_key": "email:naomi.feldman@redwoodinference.com",
-            "entity_name": "Naomi Feldman",
-            "mentions": 1
-          },
-          {
-            "entity_key": "email:naomi@redwoodinference.com",
-            "entity_name": "Naomi Feldman",
-            "mentions": 1
-          }
-        ]
+      "scored_mentions": 4167,
+      "scored_mentions_resolved": 3533,
+      "scored_mentions_abstained": 634
+    },
+    "false_merges": {
+      "count": 0,
+      "mentions_affected": 0,
+      "detail": []
+    },
+    "split_identities": {
+      "count": 3,
+      "people_with_scored_mentions": 68,
+      "detail": [
+        {
+          "person": "Grace O'Connor",
+          "email": "grace.oconnor@redwoodinference.com",
+          "fragments": 2,
+          "mentions": 788,
+          "detail": [
+            {
+              "entity_key": "email:grace.oconnor@redwood-inference.com",
+              "entity_name": "Grace O'Connor",
+              "mentions": 584
+            },
+            {
+              "entity_key": "email:grace_occonnor@redwood.ai",
+              "entity_name": "Grace Oconnor",
+              "mentions": 204
+            }
+          ]
+        },
+        {
+          "person": "Alex Martinez",
+          "email": "alex.martinez@redwoodinference.com",
+          "fragments": 2,
+          "mentions": 296,
+          "detail": [
+            {
+              "entity_key": "email:alex.chen@skybridge.io",
+              "entity_name": "Alex Chen",
+              "mentions": 293
+            },
+            {
+              "entity_key": "email:alex.martinez@redwoodinference.com",
+              "entity_name": "alex.martinez@redwoodinference.com",
+              "mentions": 3
+            }
+          ]
+        },
+        {
+          "person": "Chloe Martin",
+          "email": "chloe.martin@redwoodinference.com",
+          "fragments": 2,
+          "mentions": 6,
+          "detail": [
+            {
+              "entity_key": "email:leo@tritonlabs.com",
+              "entity_name": "Leo Martin",
+              "mentions": 4
+            },
+            {
+              "entity_key": "email:chloe_martin@redwood.com",
+              "entity_name": "Chloe Martin",
+              "mentions": 2
+            }
+          ]
+        }
+      ]
+    },
+    "precision_by_method": {
+      "graph_evidence": {
+        "scored_mentions": 397,
+        "decidable": 12,
+        "correct": 12,
+        "wrong": 0,
+        "indeterminate": 385,
+        "precision": 1.0,
+        "examples_wrong": []
       },
-      {
-        "person": "Jordan Lee",
-        "email": "jordan.lee@redwoodinference.com",
-        "fragments": 5,
-        "mentions": 8,
-        "detail": [
-          {
-            "entity_key": "email:jordan.lee@serracorp.com",
-            "entity_name": "Jordan Lee",
-            "mentions": 3
-          },
-          {
-            "entity_key": "email:jordan.lee@acme.com",
-            "entity_name": "Jordan Lee",
-            "mentions": 2
-          },
-          {
-            "entity_key": "email:jordan@stagingai.com",
-            "entity_name": "Jordan Lee",
-            "mentions": 1
-          },
-          {
-            "entity_key": "email:jordan.lee@acmecorp.com",
-            "entity_name": "Jordan Lee",
-            "mentions": 1
-          },
-          {
-            "entity_key": "email:jordan.lee@odinhealth.com",
-            "entity_name": "Jordan Lee",
-            "mentions": 1
-          }
-        ]
+      "strong_key_email": {
+        "scored_mentions": 2965,
+        "decidable": 2965,
+        "correct": 2965,
+        "wrong": 0,
+        "indeterminate": 0,
+        "precision": 1.0,
+        "examples_wrong": []
       },
-      {
-        "person": "Jordan Blake",
-        "email": "jordan.blake@redwoodinference.com",
-        "fragments": 4,
-        "mentions": 41,
-        "detail": [
-          {
-            "entity_key": "email:jordan.blake@redwood.ai",
-            "entity_name": "Jordan Blake",
-            "mentions": 35
-          },
-          {
-            "entity_key": "email:jordan_blake@redwood.example.com",
-            "entity_name": "jordan_blake@redwood.example.com",
-            "mentions": 4
-          },
-          {
-            "entity_key": "email:jordan_blake@redwood.com",
-            "entity_name": "jordan_blake@redwood.com",
-            "mentions": 1
-          },
-          {
-            "entity_key": "email:jordan.blake@jordan.blake@redwood.com",
-            "entity_name": "Jordan Blake",
-            "mentions": 1
-          }
-        ]
-      },
-      {
-        "person": "Markus Klein",
-        "email": "markus.klein@redwoodinference.com",
-        "fragments": 4,
-        "mentions": 33,
-        "detail": [
-          {
-            "entity_key": "email:markus.klein@redwood.ai",
-            "entity_name": "Markus Klein",
-            "mentions": 28
-          },
-          {
-            "entity_key": "email:markus_klein@redwoodinference.com",
-            "entity_name": "markus_klein@redwoodinference.com",
-            "mentions": 3
-          },
-          {
-            "entity_key": "email:markus.klein@redwoodinference.com",
-            "entity_name": "markus.klein@redwoodinference.com",
-            "mentions": 1
-          },
-          {
-            "entity_key": "email:markus_klein@redwood.inference.com",
-            "entity_name": "markus_klein@redwood.inference.com",
-            "mentions": 1
-          }
-        ]
-      },
-      {
-        "person": "Soojin Lee",
-        "email": "soojin.lee@redwoodinference.com",
-        "fragments": 3,
-        "mentions": 26,
-        "detail": [
-          {
-            "entity_key": "email:soojin.lee@redwood.ai",
-            "entity_name": "Soojin Lee",
-            "mentions": 17
-          },
-          {
-            "entity_key": "email:soojin_lee@redwood.ai",
-            "entity_name": "Soojin Lee",
-            "mentions": 6
-          },
-          {
-            "entity_key": "email:soojin.lee@redwoodinference.com",
-            "entity_name": "Soojin Lee",
-            "mentions": 3
-          }
-        ]
-      },
-      {
-        "person": "Tessa Morgan",
-        "email": "tessa.morgan@redwoodinference.com",
-        "fragments": 3,
-        "mentions": 21,
-        "detail": [
-          {
-            "entity_key": "email:tessa.morgan@redwoodinference.com",
-            "entity_name": "Tessa Morgan",
-            "mentions": 19
-          },
-          {
-            "entity_key": "email:tessa.morgan@redwood.com",
-            "entity_name": "Tessa Morgan",
-            "mentions": 1
-          },
-          {
-            "entity_key": "email:tessa.morgan@redwood.ai",
-            "entity_name": "tessa.morgan@redwood.ai",
-            "mentions": 1
-          }
-        ]
-      },
-      {
-        "person": "Irene Choi",
-        "email": "irene.choi@redwoodinference.com",
-        "fragments": 3,
-        "mentions": 20,
-        "detail": [
-          {
-            "entity_key": "email:irene.choi@redwoodinference.com",
-            "entity_name": "Irene Choi",
-            "mentions": 12
-          },
-          {
-            "entity_key": "email:irene.choi@redwood.com",
-            "entity_name": "Irene Choi",
-            "mentions": 6
-          },
-          {
-            "entity_key": "email:irene@redwood.ai",
-            "entity_name": "Irene Choi",
-            "mentions": 2
-          }
-        ]
-      },
-      {
-        "person": "Olga Petrov",
-        "email": "olga.petrov@redwoodinference.com",
-        "fragments": 3,
-        "mentions": 14,
-        "detail": [
-          {
-            "entity_key": "email:olga.petrov@redwood.com",
-            "entity_name": "Olga Petrov",
-            "mentions": 9
-          },
-          {
-            "entity_key": "email:olga_petrov@redwood.com",
-            "entity_name": "olga_petrov@redwood.com",
-            "mentions": 3
-          },
-          {
-            "entity_key": "email:olga.petrov@redwood.ai",
-            "entity_name": "olga.petrov@redwood.ai",
-            "mentions": 2
-          }
-        ]
-      },
-      {
-        "person": "Emily Zhao",
-        "email": "emily.zhao@redwoodinference.com",
-        "fragments": 3,
-        "mentions": 5,
-        "detail": [
-          {
-            "entity_key": "email:emily.zhao@quirksoft.com",
-            "entity_name": "Emily Zhao",
-            "mentions": 3
-          },
-          {
-            "entity_key": "email:emily.zhao@novamed.com",
-            "entity_name": "Emily Zhao",
-            "mentions": 1
-          },
-          {
-            "entity_key": "email:emily.zhao@carelogic.com",
-            "entity_name": "Emily Zhao",
-            "mentions": 1
-          }
-        ]
-      },
-      {
-        "person": "Grace O'Connor",
-        "email": "grace.oconnor@redwoodinference.com",
-        "fragments": 2,
-        "mentions": 788,
-        "detail": [
-          {
-            "entity_key": "email:grace.oconnor@redwood-inference.com",
-            "entity_name": "Grace O'Connor",
-            "mentions": 584
-          },
-          {
-            "entity_key": "email:grace_occonnor@redwood.ai",
-            "entity_name": "Grace Oconnor",
-            "mentions": 204
-          }
-        ]
-      },
-      {
-        "person": "Marissa Cole",
-        "email": "marissa.cole@redwoodinference.com",
-        "fragments": 2,
-        "mentions": 320,
-        "detail": [
-          {
-            "entity_key": "email:marissa.cole@redwood.ai",
-            "entity_name": "Marissa Cole",
-            "mentions": 317
-          },
-          {
-            "entity_key": "email:marissa_cole@redwood.example.com",
-            "entity_name": "marissa_cole@redwood.example.com",
-            "mentions": 3
-          }
-        ]
-      },
-      {
-        "person": "Laura Bennett",
-        "email": "laura.bennett@redwoodinference.com",
-        "fragments": 2,
-        "mentions": 180,
-        "detail": [
-          {
-            "entity_key": "email:laura.bennett@redwood.ai",
-            "entity_name": "Laura Bennett",
-            "mentions": 179
-          },
-          {
-            "entity_key": "email:laura_bennett@redwood.example.com",
-            "entity_name": "laura_bennett",
-            "mentions": 1
-          }
-        ]
-      },
-      {
-        "person": "Marcus Lin",
-        "email": "marcus.lin@redwoodinference.com",
-        "fragments": 2,
-        "mentions": 88,
-        "detail": [
-          {
-            "entity_key": "email:marcus.lin@redwood-inference.com",
-            "entity_name": "Marcus Lin",
-            "mentions": 64
-          },
-          {
-            "entity_key": "email:marcus.lin@redwood.ai",
-            "entity_name": "marcus_lin",
-            "mentions": 24
-          }
-        ]
-      },
-      {
-        "person": "Jonas Weber",
-        "email": "jonas.weber@redwoodinference.com",
-        "fragments": 2,
-        "mentions": 73,
-        "detail": [
-          {
-            "entity_key": "email:jonas.weber@redwood-inference.com",
-            "entity_name": "Jonas Weber",
-            "mentions": 63
-          },
-          {
-            "entity_key": "email:jonas.weber@redwood.ai",
-            "entity_name": "Jonas Weber",
-            "mentions": 10
-          }
-        ]
-      },
-      {
-        "person": "Aditya Rao",
-        "email": "aditya.rao@redwoodinference.com",
-        "fragments": 2,
-        "mentions": 69,
-        "detail": [
-          {
-            "entity_key": "email:aditya.rao@redwood.ai",
-            "entity_name": "Aditya Rao",
-            "mentions": 64
-          },
-          {
-            "entity_key": "email:aditya_rao@redwood.example.com",
-            "entity_name": "aditya_rao@redwood.example.com",
-            "mentions": 5
-          }
-        ]
-      },
-      {
-        "person": "Monica Patel",
-        "email": "monica.patel@redwoodinference.com",
-        "fragments": 2,
-        "mentions": 61,
-        "detail": [
-          {
-            "entity_key": "email:monica.patel@redwood.ai",
-            "entity_name": "Monica Patel",
-            "mentions": 60
-          },
-          {
-            "entity_key": "email:monica_patel@redwood.inference.com",
-            "entity_name": "monica_patel@redwood.inference.com",
-            "mentions": 1
-          }
-        ]
-      },
-      {
-        "person": "Kimberly Park",
-        "email": "kimberly.park@redwoodinference.com",
-        "fragments": 2,
-        "mentions": 60,
-        "detail": [
-          {
-            "entity_key": "email:kimberly.park@redwood.ai",
-            "entity_name": "Kimberly Park",
-            "mentions": 59
-          },
-          {
-            "entity_key": "email:kimberly_park@redwood.example.com",
-            "entity_name": "kimberly_park@redwood.example.com",
-            "mentions": 1
-          }
-        ]
-      },
-      {
-        "person": "Vanessa Ortiz",
-        "email": "vanessa.ortiz@redwoodinference.com",
-        "fragments": 2,
-        "mentions": 42,
-        "detail": [
-          {
-            "entity_key": "email:vanessa.ortiz@redwood.ai",
-            "entity_name": "vanessa_ortiz",
-            "mentions": 29
-          },
-          {
-            "entity_key": "email:vanessa.ortiz@redwood.com",
-            "entity_name": "Vanessa Ortiz",
-            "mentions": 13
-          }
-        ]
-      },
-      {
-        "person": "Dev Patel",
-        "email": "dev.patel@redwoodinference.com",
-        "fragments": 2,
-        "mentions": 36,
-        "detail": [
-          {
-            "entity_key": "email:dev.patel@redwood.ai",
-            "entity_name": "Dev Patel",
-            "mentions": 33
-          },
-          {
-            "entity_key": "email:dev.patel@redwood.com",
-            "entity_name": "dev.patel@redwood.com",
-            "mentions": 3
-          }
-        ]
-      },
-      {
-        "person": "Hannah Schmitt",
-        "email": "hannah.schmitt@redwoodinference.com",
-        "fragments": 2,
-        "mentions": 25,
-        "detail": [
-          {
-            "entity_key": "email:hannah.schmitt@redwood.com",
-            "entity_name": "Hannah Schmitt",
-            "mentions": 23
-          },
-          {
-            "entity_key": "email:hannah_schmitt@redwood.ai",
-            "entity_name": "Hannah Schmitt",
-            "mentions": 2
-          }
-        ]
-      },
-      {
-        "person": "Mina Haddad",
-        "email": "mina.haddad@redwoodinference.com",
-        "fragments": 2,
-        "mentions": 24,
-        "detail": [
-          {
-            "entity_key": "email:mina.haddad@redwood.com",
-            "entity_name": "Mina Haddad",
-            "mentions": 20
-          },
-          {
-            "entity_key": "email:mina_haddad@redwood.com",
-            "entity_name": "mina_haddad@redwood.com",
-            "mentions": 4
-          }
-        ]
-      },
-      {
-        "person": "Rafael Mendes",
-        "email": "rafael.mendes@redwoodinference.com",
-        "fragments": 2,
-        "mentions": 21,
-        "detail": [
-          {
-            "entity_key": "email:rafael.mendes@redwood.com",
-            "entity_name": "Rafael Mendes",
-            "mentions": 17
-          },
-          {
-            "entity_key": "email:rafael_mendes@redwoodinference.com",
-            "entity_name": "rafael_mendes@redwoodinference.com",
-            "mentions": 4
-          }
-        ]
-      },
-      {
-        "person": "Sean Gallagher",
-        "email": "sean.gallagher@redwoodinference.com",
-        "fragments": 2,
-        "mentions": 19,
-        "detail": [
-          {
-            "entity_key": "email:sean.gallagher@redwood.ai",
-            "entity_name": "Sean Gallagher",
-            "mentions": 18
-          },
-          {
-            "entity_key": "email:sean_gallagher@redwood.ai",
-            "entity_name": "sean_gallagher@redwood.ai",
-            "mentions": 1
-          }
-        ]
-      },
-      {
-        "person": "Logan Wright",
-        "email": "logan.wright@redwoodinference.com",
-        "fragments": 2,
-        "mentions": 17,
-        "detail": [
-          {
-            "entity_key": "email:logan.wright@redwood.ai",
-            "entity_name": "Logan Wright",
-            "mentions": 15
-          },
-          {
-            "entity_key": "email:logan.wright@redwood.com",
-            "entity_name": "Logan Wright",
-            "mentions": 2
-          }
-        ]
-      },
-      {
-        "person": "Sergio Alvarez",
-        "email": "sergio.alvarez@redwoodinference.com",
-        "fragments": 2,
-        "mentions": 16,
-        "detail": [
-          {
-            "entity_key": "email:sergio.alvarez@redwood.com",
-            "entity_name": "Sergio Alvarez",
-            "mentions": 12
-          },
-          {
-            "entity_key": "email:sergio.alvarez@redwood.ai",
-            "entity_name": "sergio.alvarez@redwood.ai",
-            "mentions": 4
-          }
-        ]
-      },
-      {
-        "person": "Dylan Brooks",
-        "email": "dylan.brooks@redwoodinference.com",
-        "fragments": 2,
-        "mentions": 16,
-        "detail": [
-          {
-            "entity_key": "email:dylan.brooks@redwood.ai",
-            "entity_name": "Dylan Brooks",
-            "mentions": 15
-          },
-          {
-            "entity_key": "email:dylan_brooks@redwood.example.com",
-            "entity_name": "dylan_brooks@redwood.example.com",
-            "mentions": 1
-          }
-        ]
-      },
-      {
-        "person": "Jasmine Liu",
-        "email": "jasmine.liu@redwoodinference.com",
-        "fragments": 2,
-        "mentions": 15,
-        "detail": [
-          {
-            "entity_key": "email:jasmine.liu@redwood.ai",
-            "entity_name": "Jasmine Liu",
-            "mentions": 14
-          },
-          {
-            "entity_key": "email:jasmine_liu@redwood.com",
-            "entity_name": "jasmine_liu@redwood.com",
-            "mentions": 1
-          }
-        ]
-      },
-      {
-        "person": "Dr. Aisha Rahman",
-        "email": "aisha.rahman@redwoodinference.com",
-        "fragments": 2,
-        "mentions": 5,
-        "detail": [
-          {
-            "entity_key": "email:aisha_rahman@redwood.ai",
-            "entity_name": "aisha_rahman@redwood.ai",
-            "mentions": 4
-          },
-          {
-            "entity_key": "email:aisha@redwood.ai",
-            "entity_name": "Aisha Rahman",
-            "mentions": 1
-          }
-        ]
-      },
-      {
-        "person": "Michael Grant",
-        "email": "michael.grant@redwoodinference.com",
-        "fragments": 2,
-        "mentions": 4,
-        "detail": [
-          {
-            "entity_key": "email:michael_grant@redwoodinference.com",
-            "entity_name": "Michael Grant",
-            "mentions": 3
-          },
-          {
-            "entity_key": "email:michael.grant@redwood.ai",
-            "entity_name": "michael.grant@redwood.ai",
-            "mentions": 1
-          }
-        ]
-      },
-      {
-        "person": "Alex Martinez",
-        "email": "alex.martinez@redwoodinference.com",
-        "fragments": 2,
-        "mentions": 3,
-        "detail": [
-          {
-            "entity_key": "email:alex.martinez@redwoodinference.com",
-            "entity_name": "alex.martinez@redwoodinference.com",
-            "mentions": 2
-          },
-          {
-            "entity_key": "email:alex_martinez@redwood.com",
-            "entity_name": "alex_martinez@redwood.com",
-            "mentions": 1
-          }
-        ]
-      },
-      {
-        "person": "Mateo Alvarez",
-        "email": "mateo.alvarez@redwoodinference.com",
-        "fragments": 2,
-        "mentions": 3,
-        "detail": [
-          {
-            "entity_key": "email:mateo_alvarez@redwood.ai",
-            "entity_name": "Mateo Alvarez",
-            "mentions": 2
-          },
-          {
-            "entity_key": "email:mateo.alvarez@redwood.com",
-            "entity_name": "Mateo Alvarez",
-            "mentions": 1
-          }
-        ]
-      },
-      {
-        "person": "Chloe Martin",
-        "email": "chloe.martin@redwoodinference.com",
-        "fragments": 2,
-        "mentions": 2,
-        "detail": [
-          {
-            "entity_key": "email:chloe_martin@redwood.com",
-            "entity_name": "Chloe Martin",
-            "mentions": 1
-          },
-          {
-            "entity_key": "email:chloe_martin@redwood.example.com",
-            "entity_name": "chloe_martin@redwood.example.com",
-            "mentions": 1
-          }
-        ]
+      "token_subset_unique": {
+        "scored_mentions": 171,
+        "decidable": 40,
+        "correct": 40,
+        "wrong": 0,
+        "indeterminate": 131,
+        "precision": 1.0,
+        "examples_wrong": []
       }
-    ],
-    "entity_level_splits": {
+    }
+  },
+  "entities_matching_two_or_more_employees": [],
+  "entity_level_splits": {
+    "employees_with_more_than_one_entity": 33,
+    "entities_per_covered_employee": 2.0,
+    "detail": {
       "Camila Reyes": [
         "email:camila.reyes@redwood.ai",
         "email:camila.reyes@redwood.com",
@@ -852,8 +322,13 @@
         "email:jordan_blake@redwood.example.com"
       ],
       "Jasmine Liu": [
+        "email:jasmine.l@redwood.com",
         "email:jasmine.liu@redwood.ai",
         "email:jasmine_liu@redwood.com"
+      ],
+      "Evelyn Hart": [
+        "email:evelyn.hart@redwood.ai",
+        "email:evelyn.hart@redwood.com"
       ],
       "Jonas Weber": [
         "email:jonas.weber@redwood-inference.com",
@@ -933,6 +408,7 @@
         "email:marissa_cole@redwood.example.com"
       ],
       "Mina Haddad": [
+        "email:mina.haddad@redwood.ai",
         "email:mina.haddad@redwood.com",
         "email:mina_haddad@redwood.com"
       ],
@@ -950,6 +426,7 @@
         "email:vanessa.ortiz@redwood.com"
       ],
       "Hannah Schmitt": [
+        "email:hannah.schmitt@redwood.ai",
         "email:hannah.schmitt@redwood.com",
         "email:hannah_schmitt@redwood.ai"
       ],
@@ -964,54 +441,37 @@
       "Logan Wright": [
         "email:logan.wright@redwood.ai",
         "email:logan.wright@redwood.com"
+      ],
+      "Sofia Ivanova": [
+        "email:sofia.ivanova@redwoodinference.com",
+        "email:sofia_ivanova@redwood.com"
       ]
     }
   },
-  "precision_by_method": {
-    "strong_key_email": {
-      "scored_mentions": 3001,
-      "decidable": 2965,
-      "correct": 2965,
-      "wrong": 0,
-      "indeterminate": 36,
-      "precision": 1.0,
-      "examples_wrong": []
-    }
-  },
-  "precision_by_method_lenient": {
-    "graph_evidence": {
-      "scored_mentions": 321,
-      "decidable": 17,
-      "correct": 17,
-      "wrong": 0,
-      "indeterminate": 304,
-      "precision": 1.0,
-      "examples_wrong": []
-    },
-    "strong_key_email": {
-      "scored_mentions": 3001,
-      "decidable": 2965,
-      "correct": 2965,
-      "wrong": 0,
-      "indeterminate": 36,
-      "precision": 1.0,
-      "examples_wrong": []
-    },
-    "token_subset_unique": {
-      "scored_mentions": 193,
-      "decidable": 10,
-      "correct": 10,
-      "wrong": 0,
-      "indeterminate": 183,
-      "precision": 1.0,
-      "examples_wrong": []
-    }
+  "gold_free_false_merge_sweep": {
+    "entities_checked": 1257,
+    "entities_whose_addresses_disagree_on_the_name": 1,
+    "detail": [
+      {
+        "entity_key": "email:grace_occonnor@redwood.ai",
+        "names": [
+          [
+            "grace",
+            "occonnor"
+          ],
+          [
+            "grace",
+            "oconnor"
+          ]
+        ]
+      }
+    ]
   },
   "abstention": {
-    "unresolved_with_multiple_candidates": 1720,
+    "unresolved_with_multiple_candidates": 1695,
     "buckets": {
       "no_employee_matches_surface": 985,
-      "unique_employee_existed": 610,
+      "unique_employee_existed": 585,
       "ambiguous_in_directory": 125
     },
     "examples": {
@@ -1040,8 +500,22 @@
         "lee"
       ]
     },
-    "defensible_rate": 0.6453488372093024,
-    "strict_rate_directory_ambiguous_only": 0.07267441860465117
+    "defensible_rate": 0.6548672566371682,
+    "forced_by_directory_ambiguity_rate": 0.07374631268436578
   },
-  "label_conflicts": []
+  "graph_evidence_diagnostics": {
+    "decisions": 1066,
+    "one_token_surfaces": 1055,
+    "landed_on_a_directory_employee": 12,
+    "landed_outside_the_directory": 1054,
+    "same_handle_same_document_conflicts": 0,
+    "conflicting_handles": []
+  },
+  "caveats": [
+    "Strict precision is close to structurally guaranteed, not earned. 2728 of 2965 strict labels come from the same address the tier-1 rule keyed on, and the resolver only merges identities that share a full name \u2014 while every full name in the directory is unique. A false merge of two employees therefore cannot appear in this label set. Read strict recall, not strict precision.",
+    "No abstained mention carries a strict label, so strict recall measures fragmentation only, never the cost of refusing. Every unresolved surface with two or more name tokens is a bot or a handle (`infra-bot`, `alice-tilman`), not a directory name. The lenient run is where abstention enters the recall figure.",
+    "The graph-evidence tier is effectively unscorable against this oracle: 1055 of its 1066 decisions are on one-token surfaces, for which a directory of employees supplies no referent, and 1054 land on identities the directory does not contain. Its lenient precision rests on a small decidable sample; treat the sample size as the headline.",
+    "Lenient precision is near-structural too. A lenient label is a function of the surface token, and the resolver's candidate set is a function of the same token, so two mentions can only land in one entity with different labels if their surfaces differ \u2014 which is exactly the case the label rule declines to cover. Zero false positives here is weak evidence, not strong evidence.",
+    "The oracle covers only Redwood Inference employees. Customers, vendors and partners in this corpus are out of scope by construction, so a mention resolved to an outsider is never counted right or wrong. It sees 106 of 1257 entities; the gold-free sweep below is the only check that reaches the rest."
+  ]
 }

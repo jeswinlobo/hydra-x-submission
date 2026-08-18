@@ -90,6 +90,31 @@ Where the graph does not separate the candidates the mention stays unresolved
 with its candidate set recorded — **1,682 mentions across 72 surfaces** — because
 a wrong merge is worse than an honest "cannot tell".
 
+**Scored against ground truth.** `eval-oracle/employee_directory.yaml` is the
+benchmark generator's identity oracle — 167 people with their addresses. It is
+quarantined from every resolution and answering path and used only here, by
+`scripts/77_identity_eval.py` (deterministic, read-only, no model calls):
+
+| | precision | recall | F1 |
+|---|---|---|---|
+| B³ | 100.0% | 89.8% | 94.6% |
+| Pairwise | 100.0% | 74.7% | 85.5% |
+
+**Zero false merges** — no entity fuses two directory people — against 2,965
+strictly-labelled mentions. Splitting one person across several entities was the
+whole of the recall loss and is largely fixed: 31 of 53 covered employees were
+split, now 1, which moved B³ recall from 82.7%.
+
+Read the recall, not the precision. The script says so itself, at length: 2,728
+of 2,965 strict labels come from the same address tier 1 keys on, and every
+directory full name is unique, so a false merge between two employees *cannot*
+appear in that label set. And the graph-evidence tier — the one that justifies
+HydraDB — is effectively unscorable here: 1,055 of its 1,066 decisions are on
+one-token surfaces and 1,054 land on people the directory does not contain. Its
+12 decidable decisions were all correct, which is a real result on a sample too
+small to lead with. The oracle covers 106 of 1,257 entities; the rest are
+customers and vendors it was never going to see.
+
 **Resolution is judged in both directions, so it refuses in both.** Splitting one
 person into many is the obvious failure; fusing two people into one is the
 quieter and worse one, because it produces a confident answer attributed to

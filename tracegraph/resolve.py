@@ -116,6 +116,25 @@ class Person:
     documents: set[str] = field(default_factory=set)
 
     @property
+    def name_signature(self) -> set[str]:
+        """The tokens that identify this person by name, however they arrived.
+
+        A person first seen as `Camila Reyes` and the same person first seen as
+        `camila.reyes@redwood.ai` are the same two tokens, but only one of them
+        looks like a name. Merging keyed on the display name alone therefore
+        skipped every identity whose surface happened to be an address — which
+        is most of them in a mail corpus, and is why 31 of 53 employees the
+        oracle covers were split across an average of 1.9 entities each, all of
+        them domain spellings of one employer.
+
+        Deliberately *not* `tokens`, which unions in every address ever seen for
+        this person: two people who should merge would then carry different
+        signatures precisely because one of them has more addresses.
+        """
+        name = self.display_name
+        return name_tokens(email_local_part(name) if "@" in name else name)
+
+    @property
     def tokens(self) -> set[str]:
         """Tokens that may identify this person.
 
@@ -189,6 +208,13 @@ class Resolver:
     def _observe_person(self, doc_id: str, mention: Mention, email: str,
                         channel: str | None) -> None:
         email = email.casefold()
+        # A parse can hand back `naomi.feldman@naomi.feldman@redwood.com` when a
+        # header repeats the local part. Two entities in this graph were keyed on
+        # such a string, which makes a person unreachable under their real
+        # address. Keep the last `@`, which is the one before the domain.
+        if email.count("@") > 1:
+            local, _, domain = email.rpartition("@")
+            email = f"{local.split('@')[0]}@{domain}"
         key = self._by_email.get(email) or f"email:{email}"
         person = self.people.get(key)
         if person is None:
@@ -288,10 +314,15 @@ class Resolver:
         protected = set(protected)
         by_name: dict[str, list[str]] = defaultdict(list)
         for key, person in self.people.items():
-            tokens = name_tokens(person.display_name)
-            if "@" in person.display_name or len(tokens) < 2:
+            # Two tokens minimum, from the name or from an address's local part.
+            # That is the real safety property — one token is `sam`, or a role
+            # box like `procurement@`, and merging those is the false merge this
+            # module exists to refuse. Whether the surface looked like a name is
+            # not a safety property, and treating it as one cost recall.
+            signature = person.name_signature
+            if len(signature) < 2:
                 continue
-            by_name[" ".join(sorted(tokens))].append(key)
+            by_name[" ".join(sorted(signature))].append(key)
 
         merged = 0
         for keys in by_name.values():
