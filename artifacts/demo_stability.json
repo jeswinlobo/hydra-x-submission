@@ -1,4 +1,52 @@
 {
+  "recorded_at": "2026-08-18T16:28:03+00:00",
+  "commit": "68ba8d7b408c7f81e059db164814c96ea44497e7",
+  "synthesis_model": "claude-sonnet-5",
+  "extraction_model": "claude-haiku-4-5-20251001",
+  "run_id": "run1786954555",
+  "read_epoch": 18167,
+  "latency_samples_seconds": [
+    5.87,
+    5.9,
+    6.03,
+    6.1,
+    6.17,
+    6.21,
+    6.27,
+    6.49,
+    6.64,
+    6.68,
+    6.9,
+    7.51,
+    7.53,
+    7.91,
+    8.17,
+    8.24,
+    8.49,
+    8.58,
+    8.6,
+    8.6,
+    8.64,
+    8.77,
+    9.04,
+    9.24,
+    9.25,
+    9.36,
+    9.46,
+    9.64,
+    10.1,
+    10.44,
+    12.54,
+    12.85,
+    12.87,
+    13.06,
+    13.78,
+    13.79,
+    14.34,
+    14.48,
+    15.07,
+    15.78
+  ],
   "rounds": 10,
   "questions": [
     {
@@ -32,11 +80,11 @@
         "conflicting",
         "conflicting",
         "conflicting",
-        "insufficient",
         "conflicting",
         "conflicting",
         "conflicting",
-        "conflicting"
+        "conflicting",
+        "insufficient"
       ],
       "rate": 1.0
     },
@@ -53,10 +101,10 @@
         "supported",
         "supported",
         "supported",
-        "conflicting",
         "supported",
         "supported",
-        "conflicting"
+        "supported",
+        "supported"
       ],
       "rate": 1.0
     },
@@ -81,14 +129,14 @@
     }
   ],
   "verdicts_seen": {
-    "supported": 18,
-    "conflicting": 10,
+    "supported": 20,
+    "conflicting": 8,
     "insufficient": 12
   },
   "latency_seconds": {
-    "p50": 9.2,
-    "p95": 13.4,
-    "max": 55.5
+    "p50": 8.6,
+    "p95": 14.5,
+    "max": 15.8
   },
   "min_verdict_rate": 0.9,
   "failures": []

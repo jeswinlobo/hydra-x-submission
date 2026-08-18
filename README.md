@@ -346,7 +346,14 @@ under a labelled match, an abstention carries no citations or claims, a
 `conflicting` verdict names the rival version, and a `supported` answer is not
 sitting on a dispute the system found. It also refuses to pass a run in which no
 question came back contested, because a controller that had quietly stopped
-detecting conflicts would otherwise score ten out of ten. Latency p50 9.2s, p95 13.4s, recorded in `artifacts/demo_stability.json` so the run is checkable rather than reported.
+detecting conflicts would otherwise score ten out of ten. Latency p50 8.6s, p95 13.4s.
+
+`artifacts/demo_stability.json` records the run rather than summarising it: the
+commit, both model ids, the run and read epoch, and all forty raw latency
+samples, so the aggregates can be recomputed instead of taken on trust. Note
+what "100%" means there — it is 100% *within each question's allowed set*, and
+the artifact shows the split: Grace O'Connor came back `conflicting` eight times
+and `insufficient` twice, both acceptable and both recorded.
 
 That p50 was 29.6s until the corpus was re-chunked. The file ships as a single
 row group holding all 511,962 documents, and parquet decodes a row group whole,

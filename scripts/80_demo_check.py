@@ -28,12 +28,15 @@ from __future__ import annotations
 import argparse
 import json
 import statistics
+import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from tracegraph import config  # noqa: E402
 from tracegraph.controller import AnswerController  # noqa: E402
 from tracegraph.demo import DEMO_QUESTIONS as DEMO  # noqa: E402
 from tracegraph.hydra_client import HydraClient  # noqa: E402
@@ -69,6 +72,8 @@ def main() -> int:
         if not rows:
             print("no preloaded run; answering on demand over the whole corpus\n",
                   file=sys.stderr)
+        probe = client.http_query("MATCH (d:Document) RETURN count(*) AS c")
+        read_epoch = probe.read_epoch
         ingestor = OnDemandIngestor(client, run_id)
 
         for round_no in range(1, args.rounds + 1):
@@ -209,6 +214,19 @@ def main() -> int:
     record_path = Path(args.out)
     record_path.parent.mkdir(parents=True, exist_ok=True)
     record_path.write_text(json.dumps({
+        # Provenance, so the aggregates below can be recomputed rather than
+        # taken on trust. An audit could not reproduce these rounds without
+        # sending corpus text to a model API, which is exactly why the run has
+        # to carry enough to be checked without rerunning it.
+        "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "commit": subprocess.run(
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True,
+            cwd=Path(__file__).resolve().parent.parent).stdout.strip() or None,
+        "synthesis_model": config.SYNTHESIS_MODEL,
+        "extraction_model": config.EXTRACTION_MODEL,
+        "run_id": run_id,
+        "read_epoch": read_epoch,
+        "latency_samples_seconds": [round(x, 2) for x in latencies],
         "rounds": args.rounds,
         "questions": [
             {"question": q, "allowed": sorted(e["allowed"]),
