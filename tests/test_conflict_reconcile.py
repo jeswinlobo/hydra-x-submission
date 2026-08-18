@@ -21,6 +21,7 @@ removes it afterwards.
 from __future__ import annotations
 
 import secrets
+from contextlib import contextmanager
 
 import pytest
 
@@ -28,6 +29,8 @@ from tracegraph.conflicts import ClaimRecord, detect_conflicts
 from tracegraph.hydra_client import HydraClient
 from tracegraph.ids import edge_identity, node_identity
 from tracegraph.reconcile import reconcile_conflicts
+
+SUBJECT = "Dana Okafor"
 
 CONFLICT_COUNT = (
     "MATCH (a:Claim)-[e:CONFLICTS_WITH]->(b:Claim) WHERE e.run_id = $r "
@@ -69,61 +72,107 @@ def test_agreement_is_not_a_conflict():
 # --- the whole path, against a live engine -----------------------------------
 
 
-@pytest.fixture
-def disputed_graph():
-    """Two documents disagreeing about one person's title, and nothing else.
+def build_graph(client, run_id, docs_spec, *, identities=None):
+    """Write documents, claims, spans — and optionally resolved identities.
 
-    Written under the real labels because that is what the reconciler queries,
-    scoped to a run_id no other session can hold, and torn down by id.
+    `docs_spec` is `dsid -> (raw predicate, object)`. The raw predicate is a
+    parameter on purpose: the defect this file exists to catch was that
+    selection compared raw spellings while adjudication compared canonical
+    ones, and a fixture using one spelling everywhere cannot see it.
+
+    `identities` is `dsid -> entity key`, which writes the Mention and Entity a
+    subject resolves to. Without it every subject groups by name, which is the
+    second defect: two different people sharing one.
     """
-    run_id = f"reconciletest{secrets.token_hex(4)}"
-    titles = {"dsid_rc_a": "Staff Engineer", "dsid_rc_b": "Director of Platform"}
-    ids: list[int] = []
+    from tracegraph.loader import upsert_edges, upsert_nodes
 
+    ids: list[int] = []
+    docs, claims, spans, asserts, supports = [], [], [], [], []
+    for i, (dsid, (predicate, obj)) in enumerate(docs_spec.items()):
+        did = node_identity("Document", f"{run_id}:{dsid}").id
+        cid = node_identity("Claim", f"{run_id}:{dsid}:c").id
+        sid = node_identity("EvidenceSpan", f"{run_id}:{dsid}:s").id
+        ids += [did, cid, sid]
+        docs.append({"vertex": did, "dsid": dsid, "run_id": run_id,
+                     "source_type": "gmail",
+                     "timestamp": f"2026-0{i + 1}-01T00:00:00"})
+        claims.append({"vertex": cid, "dsid": dsid, "run_id": run_id,
+                       "subject": SUBJECT, "predicate": predicate,
+                       "object": obj, "confidence": 0.9})
+        spans.append({"vertex": sid, "dsid": dsid, "run_id": run_id,
+                      "quote": f"{SUBJECT} is {obj}"})
+        asserts.append({"src": did, "dst": cid, "run_id": run_id,
+                        "eid": edge_identity("ASSERTS", did, cid).id})
+        supports.append({"src": cid, "dst": sid, "run_id": run_id,
+                         "eid": edge_identity("SUPPORTED_BY", cid, sid).id})
+
+    upsert_nodes(client, "Document", docs, job=f"{run_id}:d",
+                 properties=["dsid", "run_id", "source_type", "timestamp"])
+    upsert_nodes(client, "Claim", claims, job=f"{run_id}:c",
+                 properties=["dsid", "run_id", "subject", "predicate", "object",
+                             "confidence"])
+    upsert_nodes(client, "EvidenceSpan", spans, job=f"{run_id}:s",
+                 properties=["dsid", "run_id", "quote"])
+    upsert_edges(client, "ASSERTS", asserts, job=f"{run_id}:a",
+                 source_label="Document", target_label="Claim",
+                 properties=["run_id"])
+    upsert_edges(client, "SUPPORTED_BY", supports, job=f"{run_id}:sb",
+                 source_label="Claim", target_label="EvidenceSpan",
+                 properties=["run_id"])
+
+    if identities:
+        mentions, entities, resolves = [], [], []
+        for dsid, key in identities.items():
+            mid = node_identity("Mention", f"{run_id}:{dsid}:m").id
+            eid = node_identity("Entity", f"{run_id}:{key}").id
+            ids += [mid, eid]
+            mentions.append({"vertex": mid, "dsid": dsid, "run_id": run_id,
+                             "normalised": SUBJECT.casefold(), "surface": SUBJECT,
+                             # The resolved entity is denormalised onto the
+                             # mention, which is what adjudication reads; the
+                             # RESOLVES_TO edge below is the same fact as a
+                             # traversable edge.
+                             "status": "resolved", "entity": eid})
+            entities.append({"vertex": eid, "key": key, "name": SUBJECT,
+                             "run_id": run_id})
+            resolves.append({"src": mid, "dst": eid, "run_id": run_id,
+                             "eid": edge_identity("RESOLVES_TO", mid, eid).id})
+        upsert_nodes(client, "Mention", mentions, job=f"{run_id}:m",
+                     properties=["dsid", "run_id", "normalised", "surface",
+                                 "status", "entity"])
+        upsert_nodes(client, "Entity", entities, job=f"{run_id}:e",
+                     properties=["key", "name", "run_id"])
+        upsert_edges(client, "RESOLVES_TO", resolves, job=f"{run_id}:rt",
+                     source_label="Mention", target_label="Entity",
+                     properties=["run_id"])
+    return ids
+
+
+@contextmanager
+def scratch_graph(docs_spec, *, identities=None):
+    """A graph containing exactly this and nothing else, removed afterwards."""
+    run_id = f"reconciletest{secrets.token_hex(4)}"
     with HydraClient() as client:
         client.verify()
+        ids = []
         try:
-            docs, claims, spans, asserts, supports = [], [], [], [], []
-            for i, (dsid, title) in enumerate(titles.items()):
-                did = node_identity("Document", f"{run_id}:{dsid}").id
-                cid = node_identity("Claim", f"{run_id}:{dsid}:c").id
-                sid = node_identity("EvidenceSpan", f"{run_id}:{dsid}:s").id
-                ids += [did, cid, sid]
-                docs.append({"vertex": did, "dsid": dsid, "run_id": run_id,
-                             "source_type": "gmail",
-                             "timestamp": f"2026-0{i + 1}-01T00:00:00"})
-                claims.append({"vertex": cid, "dsid": dsid, "run_id": run_id,
-                               "subject": "Dana Okafor", "predicate": "works as",
-                               "object": title, "confidence": 0.9})
-                spans.append({"vertex": sid, "dsid": dsid, "run_id": run_id,
-                              "quote": f"Dana Okafor is {title}"})
-                asserts.append({"src": did, "dst": cid, "run_id": run_id,
-                                "eid": edge_identity("ASSERTS", did, cid).id})
-                supports.append({"src": cid, "dst": sid, "run_id": run_id,
-                                 "eid": edge_identity("SUPPORTED_BY", cid, sid).id})
-
-            from tracegraph.loader import upsert_edges, upsert_nodes
-            upsert_nodes(client, "Document", docs, job=f"{run_id}:d",
-                         properties=["dsid", "run_id", "source_type", "timestamp"])
-            upsert_nodes(client, "Claim", claims, job=f"{run_id}:c",
-                         properties=["dsid", "run_id", "subject", "predicate",
-                                     "object", "confidence"])
-            upsert_nodes(client, "EvidenceSpan", spans, job=f"{run_id}:s",
-                         properties=["dsid", "run_id", "quote"])
-            upsert_edges(client, "ASSERTS", asserts, job=f"{run_id}:a",
-                         source_label="Document", target_label="Claim",
-                         properties=["run_id"])
-            upsert_edges(client, "SUPPORTED_BY", supports, job=f"{run_id}:sb",
-                         source_label="Claim", target_label="EvidenceSpan",
-                         properties=["run_id"])
-
+            ids = build_graph(client, run_id, docs_spec, identities=identities)
             assert client.bolt_read(CONFLICT_COUNT, {"r": run_id})[0]["n"] == 0, (
                 "the fixture must start with no conflict edges")
             yield client, run_id
         finally:
-            client.bolt_write(
-                "UNWIND $rows AS row MATCH (n {id: row.id}) DETACH DELETE n",
-                {"rows": [{"id": i} for i in ids]})
+            if ids:
+                client.bolt_write(
+                    "UNWIND $rows AS row MATCH (n {id: row.id}) DETACH DELETE n",
+                    {"rows": [{"id": i} for i in ids]})
+
+
+@pytest.fixture
+def disputed_graph():
+    """Two documents disagreeing about one person's title, same raw predicate."""
+    with scratch_graph({"dsid_rc_a": ("works as", "Staff Engineer"),
+                        "dsid_rc_b": ("works as", "Director of Platform")}) as g:
+        yield g
 
 
 @pytest.mark.live
@@ -184,3 +233,102 @@ def test_the_controller_finds_what_reconciliation_wrote(disputed_graph):
     assert found, "the controller could not see the edge reconciliation wrote"
     assert found[0]["rival_value"] == "Director of Platform"
     assert found[0]["rival_dsid"] == "dsid_rc_b"
+
+
+# --- the two defects a same-predicate, no-identity fixture cannot see --------
+
+
+@pytest.mark.live
+def test_documents_disagreeing_under_different_predicate_spellings_still_conflict():
+    """`works as` and `has job title` are one fact, so they must be compared.
+
+    The incremental pass selected which facts to re-adjudicate by *raw*
+    predicate while the adjudicator groups by the *canonical* one. Every pair
+    phrased differently fell through the gap — 73 edges a full sweep found and
+    the incremental pass did not, all of them aliases of `holds_title`.
+    """
+    with scratch_graph({"dsid_alias_a": ("works as", "Staff Engineer"),
+                        "dsid_alias_b": ("has job title", "Director of Platform")}
+                       ) as (client, run_id):
+        # Only the second document is newly ingested, so selection has to reach
+        # the first through the canonical name rather than the spelling.
+        outcome = reconcile_conflicts(client, run_id, ["dsid_alias_b"])
+
+        assert outcome.conflicts_found >= 1, (
+            "a disagreement phrased two ways was not detected")
+        assert client.bolt_read(CONFLICT_COUNT, {"r": run_id})[0]["n"] >= 1, (
+            "no edge was written for a disagreement across predicate aliases")
+
+
+@pytest.mark.live
+def test_two_people_sharing_a_name_are_not_one_contested_fact():
+    """Grouping on the name alone manufactured disputes between strangers.
+
+    Anna Liu at cedarwave.com and Anna Liu at cloudwave.com were being reported
+    as two versions of one person's employer, as were two Elena Rossis at
+    unrelated companies. Thirty-one such edges were in the graph. Where the
+    resolver has decided who a surface refers to, that decides whether two
+    claims are about the same subject at all.
+    """
+    with scratch_graph(
+        {"dsid_ident_a": ("works as", "Staff Engineer"),
+         "dsid_ident_b": ("works as", "Director of Platform")},
+        identities={"dsid_ident_a": "email:dana@northwind.com",
+                    "dsid_ident_b": "email:dana@southgate.com"},
+    ) as (client, run_id):
+        outcome = reconcile_conflicts(client, run_id, ["dsid_ident_a", "dsid_ident_b"])
+
+        assert outcome.conflicts_found == 0, (
+            "two different people were adjudicated as one contested fact")
+        assert client.bolt_read(CONFLICT_COUNT, {"r": run_id})[0]["n"] == 0
+
+
+@pytest.mark.live
+def test_one_person_under_two_documents_still_conflicts_when_identity_agrees():
+    """The other half of the same rule — resolving must not suppress real disputes."""
+    with scratch_graph(
+        {"dsid_same_a": ("works as", "Staff Engineer"),
+         "dsid_same_b": ("has job title", "Director of Platform")},
+        identities={"dsid_same_a": "email:dana@northwind.com",
+                    "dsid_same_b": "email:dana@northwind.com"},
+    ) as (client, run_id):
+        outcome = reconcile_conflicts(client, run_id, ["dsid_same_b"])
+
+        assert outcome.conflicts_found >= 1, (
+            "one person contradicted about their own title was not detected")
+        assert client.bolt_read(CONFLICT_COUNT, {"r": run_id})[0]["n"] >= 1
+
+
+def test_grouping_prefers_identity_over_name():
+    """The unit behind both tests above, without a database."""
+    same_name = [record("dsid_a", "Staff Engineer", claim_id=1),
+                 record("dsid_b", "Director of Platform", claim_id=2)]
+
+    by_name, _ = detect_conflicts(same_name, document_order=["dsid_a", "dsid_b"])
+    assert len(by_name) == 1, "the baseline must be a conflict when only names are known"
+
+    strangers, _ = detect_conflicts(
+        same_name, document_order=["dsid_a", "dsid_b"],
+        subject_identity={("dsid_a", SUBJECT.casefold()): 111,
+                          ("dsid_b", SUBJECT.casefold()): 222})
+    assert strangers == [], "two identities were merged into one contested fact"
+
+    one_person, _ = detect_conflicts(
+        same_name, document_order=["dsid_a", "dsid_b"],
+        subject_identity={("dsid_a", SUBJECT.casefold()): 111,
+                          ("dsid_b", SUBJECT.casefold()): 111})
+    assert len(one_person) == 1, "one person's genuine dispute was suppressed"
+
+
+def test_a_subject_with_no_resolved_identity_still_groups_by_name():
+    """Most subjects are not people, and must not stop being adjudicated."""
+    conflicts, _ = detect_conflicts(
+        [record("dsid_a", "open", claim_id=1, subject="EX-011 remediation",
+                predicate="has status"),
+         record("dsid_b", "closed", claim_id=2, subject="EX-011 remediation",
+                predicate="has status")],
+        document_order=["dsid_a", "dsid_b"],
+        # An identity map that knows about somebody else entirely must not stop
+        # a subject that is not a person from being adjudicated.
+        subject_identity={("dsid_a", "somebody else"): 111})
+    assert len(conflicts) == 1

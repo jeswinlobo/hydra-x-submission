@@ -219,7 +219,7 @@ def main() -> int:
                     statuses.append({
                         "vertex": mid, "status": "resolved", "method": outcome.method,
                         "candidates": len(outcome.candidates),
-                        "reason": outcome.evidence[:300]})
+                        "reason": outcome.evidence[:300], "entity": target})
                     resolves.append({
                         "src": mid, "dst": target,
                         "eid": edge_identity("RESOLVES_TO", mid, target).id,
@@ -289,7 +289,8 @@ def main() -> int:
             if not candidates:
                 statuses.append({"vertex": mid, "status": "unresolved",
                                  "method": METHOD_UNRESOLVED, "candidates": 0,
-                                 "reason": (outcome.evidence or "no candidate")[:300]})
+                                 "reason": (outcome.evidence or "no candidate")[:300],
+                                 "entity": 0})
                 continue
             decision = evidence.score_candidates(
                 candidates, node_identity(DOC, dsid).id,
@@ -304,7 +305,8 @@ def main() -> int:
                 statuses.append({"vertex": mid, "status": "unresolved",
                                  "method": METHOD_UNRESOLVED,
                                  "candidates": len(candidates),
-                                 "reason": (decision.reason or "")[:300]})
+                                 "reason": (decision.reason or "")[:300],
+                                 "entity": 0})
                 continue
             graph_resolves.append({
                 "src": mid, "dst": decision.winner.entity_id,
@@ -316,7 +318,8 @@ def main() -> int:
             statuses.append({"vertex": mid, "status": "resolved",
                              "method": METHOD_GRAPH_EVIDENCE,
                              "candidates": len(candidates),
-                             "reason": decision.reason[:300]})
+                             "reason": decision.reason[:300],
+                             "entity": decision.winner.entity_id})
 
         # Now every decision is known, so the graph can be reconciled against it.
         # Deleting earlier would have spared the ambiguous mentions, whose new
@@ -353,7 +356,8 @@ def main() -> int:
                                      "run_id"])
         if statuses:
             upsert_nodes(client, MENTION, statuses, job=f"rebuild-st:{run_id}",
-                         properties=["status", "method", "candidates", "reason"])
+                         properties=["status", "method", "candidates", "reason",
+                                     "entity"])
 
         moved = repoint_merged_away(client, run_id, resolver, entity_ids, want)
         if moved:

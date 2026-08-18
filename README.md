@@ -153,18 +153,40 @@ answer path — which walks persisted edges — could only see disputes that exi
 then. A disagreement introduced by a document a question had just reached was
 invisible, and under `--fast`, where nothing is preloaded, every disagreement
 was: 23 edges for 2,606 claims. On-demand ingestion now re-adjudicates the facts
-its documents touch, once per batch, and the graph holds 375 edges for 3,028
-claims. `scripts/55_conflicts.py` remains for a full sweep; the two agree because
+its documents touch, once per batch, and the graph holds 234 edges for 3,154
+claims — fewer than the 375 an earlier, looser rule produced, because 31 of
+those joined two different people and 181 more did not survive the corrected
+grouping. `scripts/55_conflicts.py` remains for a full sweep; the two agree because
 both call the same detector and edge ids are deterministic, so a pair judged
 twice converges on one edge.
 
-That reconciliation is a single bulk read, which is the opposite of what looked
-obvious. Fetching only the competing versions of one fact —
-`MATCH (d:Document)-[:ASSERTS]->(c:Claim) WHERE c.subject = … AND c.predicate = …`
-— walks the Document label to reach the claim and cost **3.4 seconds each**,
-thirty-six per question. Loading every claim in the run costs 3.8 seconds once.
-A narrower query is not a cheaper one when the cost tracks the anchor label
-rather than the rows returned.
+Three things had to be right for that to be correct rather than merely present,
+and the first two were wrong until a live comparison against a full sweep found
+73 edges missing and 31 that should never have existed.
+
+**A disagreement is about a canonical fact, not a spelling.** Selection compared
+raw predicates while adjudication compares aligned ones, so a document saying
+`has job title` never reached the existing `works as` claims — every one of the
+73 missing edges was an alias of `holds_title`.
+
+**And it is about a person, not a name.** Grouping on the subject string put
+Anna Liu at cedarwave.com and Anna Liu at cloudwave.com into one dispute about
+one person's employer, and did the same to two Elena Rossis at unrelated
+companies. Adjudication now groups by the identity the resolver decided on,
+falling back to the name only where there is no identity to use — most subjects
+are not people. Incremental and sweep now agree exactly: **227 expected, 227
+persisted, 0 joining different identities**, and the sweep also *removes* edges
+it no longer produces, because a rule that changes has to retract what the old
+one wrote.
+
+**The read shape is the opposite of what looks obvious.** Fetching only the
+competing versions of one fact walks the Document label to reach the claim and
+cost **3.4 seconds each**, thirty-six per question — a cold question went from
+30 seconds to 275. One bulk load of every claim costs 3.5 seconds. Likewise the
+identity map: walking `RESOLVES_TO` to the entity cost 7.6 seconds against 0.7
+for reading the mentions alone, so the resolved entity is denormalised onto the
+mention, which already records *how* it resolved. A narrower query is not a
+cheaper one when cost tracks the anchor label rather than the rows returned.
 
 `algo.SPpaths` returns the path connecting a resolved identity to a channel it
 participates in, and the panel renders the elements the engine returned rather
@@ -335,7 +357,7 @@ round-trips a real query first, because a port is not proof.
 ## Verifying the claims above
 
 ```bash
-uv run pytest                             # 164 tests, 23 against the live engine
+uv run pytest                             # 169 tests, 26 against the live engine
 uv run python scripts/35_verify_gate.py   # 11 checks, read back from the graph
 uv run python scripts/36_repair_graph.py  # audit identities and undecided mentions
 uv run python scripts/37_rebuild_resolution.py  # re-decide every identity, report drift

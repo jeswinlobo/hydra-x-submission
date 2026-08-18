@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Iterable, Sequence
+from typing import Iterable, Mapping, Sequence
 
 from .ontology import Predicate, align, normalise_object, source_authority
 
@@ -215,18 +215,33 @@ def detect_conflicts(
     records: Iterable[ClaimRecord],
     *,
     document_order: Sequence[str] | None = None,
+    subject_identity: Mapping[tuple[str, str], int] | None = None,
 ) -> tuple[list[Conflict], dict]:
     """Find contested facts and weigh their versions.
 
     `document_order` is oldest-first, and supplies recency where a corpus has no
     reliable per-document timestamp. Without it recency contributes nothing
     rather than being guessed.
+
+    `subject_identity` maps `(dsid, casefolded subject)` to the entity the
+    resolver decided that surface refers to. Supplying it is what stops a
+    contested fact from being assembled out of two different people: grouping on
+    the *name* alone put Anna Liu at cedarwave.com and Anna Liu at cloudwave.com
+    into one dispute about one person's employer, and Elena Rossi at acmefin.com
+    against Elena Rossi at elevate-ai.it. Thirty-one such edges were in the
+    graph. A subject with no resolved identity still groups by name, because a
+    name is the only handle there is — but where the graph knows who somebody
+    is, that is what decides whether two claims are even about the same subject.
     """
     ordering = {dsid: i for i, dsid in enumerate(document_order or [])}
+    identity = subject_identity or {}
 
     grouped: dict[tuple[str, str], list[ClaimRecord]] = defaultdict(list)
     unmapped: dict[str, int] = defaultdict(int)
     aligned_predicates: dict[str, Predicate] = {}
+    # The group key is an identity, which is not printable; this carries a human
+    # name for it so a conflict still reports whose fact is contested.
+    display_subject: dict[str, str] = {}
 
     for record in records:
         alignment = align(record.predicate)
@@ -239,11 +254,16 @@ def detect_conflicts(
         if not predicate.can_conflict:
             continue
         subject = record.subject.strip().casefold()
-        grouped[(subject, predicate.name)].append(record)
+        # Prefer who the graph says this is over what the document called them.
+        entity = identity.get((record.dsid, subject))
+        key = f"entity:{entity}" if entity is not None else f"name:{subject}"
+        grouped[(key, predicate.name)].append(record)
+        display_subject[key] = record.subject.strip()
         aligned_predicates[predicate.name] = predicate
 
     conflicts: list[Conflict] = []
-    for (subject, predicate_name), claims in grouped.items():
+    for (subject_key, predicate_name), claims in grouped.items():
+        subject = display_subject.get(subject_key, subject_key)
         predicate = aligned_predicates[predicate_name]
         by_value: dict[str, Version] = {}
         for claim in claims:

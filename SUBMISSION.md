@@ -130,7 +130,7 @@ batch, **62 (12%) cited evidence not appearing verbatim in the source and were
 rejected**.
 
 Ingestion runs at ~19,000 nodes/second; registering 511,958 document ids produced
-zero collisions. 164 tests pass, 23 of them against the live engine.
+zero collisions. 169 tests pass, 26 of them against the live engine.
 
 ## Team members and contributions
 

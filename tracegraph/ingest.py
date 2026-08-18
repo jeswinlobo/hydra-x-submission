@@ -519,6 +519,7 @@ class OnDemandIngestor:
                     "vertex": mid, "status": "unresolved",
                     "method": METHOD_UNRESOLVED, "candidates": 0,
                     "reason": (outcome.evidence or "no candidate")[:300],
+                    "entity": 0,
                 })
                 continue
 
@@ -578,7 +579,8 @@ class OnDemandIngestor:
         if statuses:
             upsert_nodes(self.client, MENTION, statuses,
                          job=f"ondemand-st:{dsid}",
-                         properties=["status", "method", "candidates", "reason"])
+                         properties=["status", "method", "candidates", "reason",
+                                     "entity"])
 
         resolved = sum(1 for s in statuses if s["status"] == "resolved")
         return resolved, len(statuses) - resolved

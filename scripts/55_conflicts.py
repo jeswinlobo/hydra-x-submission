@@ -18,7 +18,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tracegraph.conflicts import ClaimRecord, detect_conflicts  # noqa: E402
+from tracegraph.conflicts import ClaimRecord, detect_conflicts
+from tracegraph.reconcile import load_subject_identity, prune_superseded  # noqa: E402
 from tracegraph.hydra_client import HydraClient  # noqa: E402
 from tracegraph.ids import IdRegistry, edge_identity  # noqa: E402
 from tracegraph.loader import Checkpointer, upsert_edges  # noqa: E402
@@ -68,7 +69,14 @@ def main() -> int:
         order = sorted(timestamps, key=lambda d: timestamps[d])
         print(f"  {len(order)} of {len({r.dsid for r in records})} documents "
               "carry a stated date and take part in recency")
-        conflicts, stats = detect_conflicts(records, document_order=order)
+        # Grouped by resolved identity where the graph knows one, so a
+        # disagreement cannot be assembled out of two different people who share
+        # a name — Anna Liu at cedarwave.com and Anna Liu at cloudwave.com are
+        # not two versions of one person's employer.
+        identity = load_subject_identity(client, run_id)
+        print(f"  {len(identity)} resolved surfaces available to group by identity")
+        conflicts, stats = detect_conflicts(
+            records, document_order=order, subject_identity=identity)
 
         print(f"run {run_id}: {len(records)} claims")
         print(f"  {stats['groups_examined']} single-valued subject+predicate groups")
@@ -111,11 +119,18 @@ def main() -> int:
                          properties=["predicate", "subject", "decided", "margin",
                                      "run_id"],
                          checkpointer=checkpointer)
-            total = client.bolt_read(
-                "MATCH (a:Claim)-[r:CONFLICTS_WITH]->(b:Claim) WHERE r.run_id = $r "
-                "RETURN count(*) AS n", {"r": run_id})
-            print(f"  {len(edges)} CONFLICTS_WITH edges written, "
-                  f"{total[0]['n']} in graph")
+
+        # A sweep is authoritative, so it also removes what it no longer finds.
+        # Without this an edge written under a superseded rule survives forever
+        # and the answer path keeps reporting it — which is how thirty-one
+        # disputes between two different people stayed in the graph after the
+        # grouping was corrected.
+        removed = prune_superseded(client, run_id, {(e["src"], e["dst"]) for e in edges})
+        total = client.bolt_read(
+            "MATCH (a:Claim)-[r:CONFLICTS_WITH]->(b:Claim) WHERE r.run_id = $r "
+            "RETURN count(*) AS n", {"r": run_id})
+        print(f"  {len(edges)} CONFLICTS_WITH edges written, {removed} superseded "
+              f"removed, {total[0]['n']} in graph")
 
         # --- show the interesting ones ---------------------------------------
         for conflict in conflicts[: args.show]:
