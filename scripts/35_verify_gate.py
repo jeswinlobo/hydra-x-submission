@@ -17,8 +17,10 @@ and passed for the wrong reasons:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -285,6 +287,55 @@ def main() -> int:
                f"bookmark_sequence={scope.sequence if scope else 'n/a'}")
 
     passed = sum(1 for _, ok in CHECKS if ok)
+
+    # Write the snapshot the documents quote.
+    #
+    # Every prose number describing this graph has gone stale between audits,
+    # four times over, because the graph grows whenever anyone asks a question.
+    # Chasing the digits by hand is what kept failing. One generated artifact
+    # carrying the epoch it was taken at is something the README can point to
+    # rather than restate, and regenerating it is a command rather than an edit.
+    snapshot: dict = {
+        "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "checks_passed": passed,
+        "checks_total": len(CHECKS),
+    }
+    with HydraClient() as client:
+        client.verify()
+        rows = client.bolt_read(
+            "MATCH (d:Document) RETURN d.run_id AS r ORDER BY r DESC LIMIT 1")
+        run_id = rows[0]["r"] if rows else "ondemand"
+        probe = client.http_query("MATCH (d:Document) RETURN count(*) AS c")
+        snapshot["run_id"] = run_id
+        snapshot["read_epoch"] = probe.read_epoch
+        snapshot["nodes"] = {
+            label: client.bolt_read(
+                f"MATCH (x:{label}) WHERE x.run_id = $r RETURN count(*) AS n",
+                {"r": run_id})[0]["n"]
+            for label in ("Document", "Entity", "Mention", "Claim",
+                          "EvidenceSpan", "Channel")
+        }
+        by_graph = client.bolt_read(
+            "MATCH (m:Mention)-[r:RESOLVES_TO]->(e:Entity) WHERE r.run_id = $r "
+            "AND r.method = 'graph_evidence' RETURN m.normalised AS s LIMIT 20000",
+            {"r": run_id})
+        competing = client.bolt_read(
+            "MATCH (m:Mention) WHERE m.run_id = $r AND m.status = 'unresolved' "
+            "AND m.candidates > 1 RETURN m.normalised AS s LIMIT 20000",
+            {"r": run_id})
+        snapshot["resolution"] = {
+            "graph_evidence_occurrences": len(by_graph),
+            "graph_evidence_surfaces": len({x["s"] for x in by_graph}),
+            "competing_unresolved_mentions": len(competing),
+            "competing_unresolved_surfaces": len({x["s"] for x in competing}),
+        }
+
+    out = Path(__file__).resolve().parent.parent / "artifacts" / "graph_snapshot.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(snapshot, indent=2) + "\n")
+    print(f"  snapshot -> artifacts/{out.name} (read_epoch {probe.read_epoch}, "
+          f"{snapshot['nodes']['Document']} documents)")
+
     print(f"\n{passed}/{len(CHECKS)} gate checks passed")
     return 0 if passed == len(CHECKS) else 1
 

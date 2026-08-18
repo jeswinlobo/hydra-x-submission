@@ -1,0 +1,21 @@
+{
+  "recorded_at": "2026-08-18T17:24:41+00:00",
+  "checks_passed": 14,
+  "checks_total": 14,
+  "run_id": "run1786954555",
+  "read_epoch": 18642,
+  "nodes": {
+    "Document": 1245,
+    "Entity": 1259,
+    "Mention": 10548,
+    "Claim": 6553,
+    "EvidenceSpan": 6182,
+    "Channel": 38
+  },
+  "resolution": {
+    "graph_evidence_occurrences": 1066,
+    "graph_evidence_surfaces": 38,
+    "competing_unresolved_mentions": 1751,
+    "competing_unresolved_surfaces": 73
+  }
+}

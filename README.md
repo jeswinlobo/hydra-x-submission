@@ -79,16 +79,24 @@ MATCH (e:Entity {id: $eid})-[:PARTICIPATED_IN]->(c:Channel {id: $cid})
 RETURN count(*) AS n
 ```
 
-On the loaded slice this decided **1,066 mention occurrences**, spanning **38
-distinct ambiguous surfaces** — `alex` resolved to Alex Chen over 47 competitors,
-at 0.95 confidence. The two numbers are far apart on purpose: bare first names
-are few but they recur constantly, so a handful of genuinely ambiguous strings
-accounts for most of the volume. `scripts/35_verify_gate.py` reports both,
-straight out of the graph.
+At the snapshot in `artifacts/graph_snapshot.json` — read epoch
+18642, 1245 documents — this decided
+**1,066 mention occurrences** spanning
+**38 distinct ambiguous surfaces**. The two
+numbers are far apart on purpose: bare first names are few but they recur
+constantly, so a handful of genuinely ambiguous strings accounts for most of the
+volume.
 
 Where the graph does not separate the candidates the mention stays unresolved
-with its candidate set recorded — **1,695 mentions across 72 surfaces** — because
-a wrong merge is worse than an honest "cannot tell".
+with its candidate set recorded — **1,751
+mentions across 73 surfaces** — because a
+wrong merge is worse than an honest "cannot tell".
+
+Every count here is generated, not typed. The graph grows whenever anyone asks a
+question, so figures written into prose drift within hours; `scripts/35_verify_gate.py`
+rewrites the snapshot each run and this section quotes it. If a number here
+disagrees with the artifact, the artifact is right and the gate has not been
+re-run.
 
 **Scored against ground truth.** `eval-oracle/employee_directory.yaml` is the
 benchmark generator's identity oracle — 167 people with their addresses. It is

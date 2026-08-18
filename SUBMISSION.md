@@ -72,12 +72,14 @@ three capabilities disappear entirely without it.
 graph first — who speaks in which channel, which mention sits in which document
 — and ambiguous surfaces are then scored by traversals over that structure:
 co-occurrence in the same document at two hops, participation in the same
-channel at one. On the loaded slice this decided **1,066 mention occurrences
-across 38 distinct ambiguous surfaces**, including `alex` → Alex Chen over 47
-competing candidates at 0.95 confidence. Where the graph does not separate
-candidates the mention stays unresolved with its candidate set recorded as
-`CANDIDATE_FOR` edges — 1,695 mentions across 72 surfaces keep a competing set
-rather than being guessed at.
+channel at one. At the snapshot in `artifacts/graph_snapshot.json` (read epoch
+18642, 1245 documents) this decided
+**1,066 mention occurrences across
+38 distinct ambiguous surfaces**. Where the graph
+does not separate candidates the mention stays unresolved with its candidate set
+recorded as `CANDIDATE_FOR` edges — 1,751
+mentions across 73 surfaces keep a competing
+set rather than being guessed at.
 
 Merging is equally a refusal. Two people sharing a full name are folded together
 only when they also share an organisational root, so Grace O'Connor's fourteen
@@ -179,7 +181,7 @@ Every item is a listed disqualification reason. Tick them off in order.
 | 0:00–0:20 | **The problem.** Nine tools, half a million documents, one person under three names, one fact in four versions. |
 | 0:20–0:35 | **The project.** TraceGraph: answers with citations, kept contradictions, honest abstention. |
 | 0:35–1:00 | **Demo.** Ask a real question; grounded answer with exact dsid citations, evidence subgraph. |
-| 1:00–1:30 | **Demo.** Resolution panel: `alex` against 43 candidates, decided by shared participation — show the query and the graph evidence. |
+| 1:00–1:30 | **Demo.** Resolution panel: `alex` against its live competing-candidate count (read it off the panel, not from here — it grows) — show the query and the graph evidence. |
 | 1:30–1:55 | **Demo.** Conflict panel: one person, several job titles, trust breakdown, recency-as-supersession. |
 | 1:55–2:10 | **Demo.** Ask something the corpus does not contain; explicit abstention, no citations. |
 | 2:10–2:55 | **HydraDB.** Ontology, `algo.SPpaths` in the resolution panel, bounded hops, the real `read_epoch` in the trace, and one sentence on what disappears without it. |
