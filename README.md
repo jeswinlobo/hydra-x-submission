@@ -276,7 +276,7 @@ settled by a check that can fail.
 ## Results
 
 Retrieval, measured over all 511,962 documents against the 470 benchmark
-questions that carry an answer key (`scripts/75_retrieval_eval.py`).
+questions that carry an answer key (`scripts/76_recall_by_budget.py`).
 
 **Reported at the budget production actually uses.** Retrieval keeps eight
 documents per question, so top-20 recall would flatter the system by describing
@@ -288,22 +288,26 @@ a configuration it does not run:
 | **8 — production** | **0.671** | **0.424** | **what the answer path sees** |
 | 20 | 0.736 | 0.488 | wider than anything downstream consumes |
 
-At the production budget: at least one expected document for **77.4%** of
-questions, every expected document for **69.1%**, median rank of the first
-correct document **1**.
+At the production budget of eight: at least one expected document for **73.0%**
+of questions (343/470), every expected document for **61.5%** (289/470), median
+rank of the first correct document **1**. Widening to twenty would make those
+77.4% and 69.1%, which is stated here only so the two are not mistaken for each
+other; nothing downstream sees a twentieth document.
 
 By question type, which is the useful cut — lexical search does well where
-question wording overlaps the source and collapses where it does not:
+question wording overlaps the source and collapses where it does not. The
+production row is the one to read; top-20 is beneath it for comparison only:
 
-| intra-doc | conflicting | misc | constrained | basic | project | completeness | **semantic** |
-|---|---|---|---|---|---|---|---|
-| 0.925 | 0.900 | 0.900 | 0.883 | 0.817 | 0.768 | 0.584 | **0.488** |
+| Budget | misc | intra-doc | constrained | conflicting | basic | project | completeness | **semantic** |
+|---|---|---|---|---|---|---|---|---|
+| **8 — production** | **0.900** | **0.875** | **0.833** | **0.800** | **0.771** | **0.599** | **0.475** | **0.424** |
+| 20 — comparison | 0.900 | 0.925 | 0.883 | 0.900 | 0.817 | 0.768 | 0.584 | 0.488 |
 
-All eight types the benchmark carries, none omitted. The recorded run is
-committed at `artifacts/retrieval_summary.json`, so these are checkable without
-re-running anything.
+All eight types the benchmark carries, none omitted. The recorded run is at
+`artifacts/recall_by_budget.json`, which holds every budget and every metric
+above, so these are checkable without re-running anything.
 
-That 0.488 is the number graph reasoning has to move, and it is why the graph
+That 0.424 is the number graph reasoning has to move, and it is why the graph
 exists rather than a bigger index.
 
 **Evidence discipline, measured rather than asserted.** Of 505 claims the model
@@ -436,7 +440,7 @@ uv run pytest                             # 177 tests, 27 against the live engin
 uv run python scripts/35_verify_gate.py   # 11 checks, read back from the graph
 uv run python scripts/36_repair_graph.py  # audit identities and undecided mentions
 uv run python scripts/37_rebuild_resolution.py  # re-decide every identity, report drift
-uv run python scripts/75_retrieval_eval.py --limit 470
+uv run python scripts/76_recall_by_budget.py  # recall at 4, 8 and 20, one pass
 ```
 
 Every command above is read-only. `scripts/55_conflicts.py` is a pipeline step,
