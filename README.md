@@ -164,12 +164,15 @@ Three things had to be right for that to be correct rather than merely present,
 and the first two were wrong until a live comparison against a full sweep found
 73 edges missing and 31 that should never have existed.
 
-**A disagreement is about a canonical fact, not a spelling.** Selection compared
-raw predicates while adjudication compares aligned ones, so a document saying
-`has job title` never reached the existing `works as` claims — every one of the
-73 missing edges was an alias of `holds_title`.
+**Selection and adjudication now share one definition of "the same fact",**
+because having two was the bug twice over. Selection compared raw predicates
+while adjudication compares aligned ones, so `has job title` never reached
+`works as` — 73 missing edges, every one an alias of `holds_title`. Fixing that
+in one place left the identical fault on the subject: `S. Ratnaparkhi` never
+reached `Sam` even where the resolver had already decided they are one person.
+Both callers now ask `conflicts.group_key`, so they cannot drift apart again.
 
-**And it is about a person, not a name.** Grouping on the subject string put
+**A fact is about a person, not a name.** Grouping on the subject string put
 Anna Liu at cedarwave.com and Anna Liu at cloudwave.com into one dispute about
 one person's employer, and did the same to two Elena Rossis at unrelated
 companies. Adjudication now groups by the identity the resolver decided on,
@@ -357,7 +360,7 @@ round-trips a real query first, because a port is not proof.
 ## Verifying the claims above
 
 ```bash
-uv run pytest                             # 169 tests, 26 against the live engine
+uv run pytest                             # 177 tests, 27 against the live engine
 uv run python scripts/35_verify_gate.py   # 11 checks, read back from the graph
 uv run python scripts/36_repair_graph.py  # audit identities and undecided mentions
 uv run python scripts/37_rebuild_resolution.py  # re-decide every identity, report drift

@@ -88,13 +88,14 @@ if [[ $FAST -eq 0 ]]; then
   uv run python scripts/45_extract_claims.py --docs 30 || \
     echo "  note: extraction had trouble; on-demand ingestion still covers questions"
 
-  step "detecting conflicts"
-  uv run python scripts/55_conflicts.py --show 0
-
-  # Reconciles the graph with the current resolution rule. A no-op on a fresh
-  # build; it matters when the rule has moved since the graph was written.
+  # Identity first, then conflicts. Conflict adjudication groups by the
+  # resolved identity, so a sweep that runs before identities are settled
+  # groups by name instead — and nothing reruns it afterwards.
   step "reconciling identity decisions"
   uv run python scripts/37_rebuild_resolution.py --apply
+
+  step "detecting conflicts"
+  uv run python scripts/55_conflicts.py --show 0
 else
   echo
   echo "  --fast: skipping the slice. Questions still work — documents are"

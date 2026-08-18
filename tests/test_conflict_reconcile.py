@@ -28,6 +28,7 @@ import pytest
 from tracegraph.conflicts import ClaimRecord, detect_conflicts
 from tracegraph.hydra_client import HydraClient
 from tracegraph.ids import edge_identity, node_identity
+from tracegraph.conflicts import group_key
 from tracegraph.reconcile import reconcile_conflicts
 
 SUBJECT = "Dana Okafor"
@@ -332,3 +333,66 @@ def test_a_subject_with_no_resolved_identity_still_groups_by_name():
         # a subject that is not a person from being adjudicated.
         subject_identity={("dsid_a", "somebody else"): 111})
     assert len(conflicts) == 1
+
+
+# --- the key both halves must agree on ---------------------------------------
+
+
+def test_selection_and_adjudication_cannot_disagree():
+    """One definition of "the same fact", because two was the bug — twice.
+
+    Selection computed the key one way and adjudication another, so the
+    incremental pass silently missed pairs the sweep found: first over predicate
+    spelling (`has job title` never reached `works as`, 73 edges), then over
+    subject spelling (`S. Ratnaparkhi` never reached `Sam`, though the resolver
+    had already decided they are one person).
+    """
+    identity = {("d1", "s. ratnaparkhi"): 42, ("d2", "sam"): 42}
+    assert (group_key("d1", "S. Ratnaparkhi", "works as", identity)
+            == group_key("d2", "Sam", "has job title", identity)), (
+        "two spellings of one resolved person are one fact")
+
+
+def test_two_spellings_are_not_one_fact_without_a_resolved_identity():
+    """Nothing is assumed. Absent a resolution, different names stay different."""
+    assert (group_key("d1", "S. Ratnaparkhi", "works as", {})
+            != group_key("d2", "Sam", "works as", {}))
+
+
+@pytest.mark.parametrize("predicate", ["works as", "has job title",
+                                       "current title", "holds title"])
+def test_every_alias_of_one_predicate_reaches_the_same_fact(predicate):
+    assert (group_key("d", SUBJECT, predicate, {})
+            == group_key("d", SUBJECT, "works as", {}))
+
+
+def test_an_unalignable_predicate_is_not_a_fact():
+    """An unmapped relation is a queue item, not a licence to invent a category."""
+    assert group_key("d", SUBJECT, "sent email on", {}) is None
+
+
+@pytest.mark.live
+def test_the_real_ingestion_writer_records_which_identity_it_chose():
+    """Through the production writer, not a hand-populated fixture.
+
+    Conflict adjudication reads `Mention.entity` to tell two people with one
+    name apart. Both resolved-status builders in the ingestor omitted it while
+    the tests set it by hand, so the property the whole mechanism depends on was
+    never actually produced by the code that ships.
+    """
+    import inspect
+    import re
+
+    from tracegraph import ingest
+
+    source = inspect.getsource(ingest.OnDemandIngestor._resolve_mentions)
+    writes = re.findall(r"statuses\.append\(\{(.*?)\}\)", source, re.S)
+    assert writes, "the status writer moved; this test needs updating"
+    for block in writes:
+        status = re.search(r'"status": "(\w+)"', block).group(1)
+        assert '"entity"' in block, (
+            f"a {status} mention is written without the identity it resolved "
+            "to, which conflict adjudication reads")
+
+    properties = re.search(r"properties=\[([^\]]*)\]\)\s*$", source.rstrip(), re.S)
+    assert properties is None or "entity" in properties.group(1)

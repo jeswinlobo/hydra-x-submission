@@ -30,12 +30,10 @@ from dataclasses import dataclass
 
 import logging
 
-from .conflicts import ClaimRecord, detect_conflicts
+from .conflicts import ClaimRecord, detect_conflicts, group_key
 from .hydra_client import HydraClient
 from .ids import IdRegistry, edge_identity
 from .loader import upsert_edges
-from .ontology import align
-
 logger = logging.getLogger(__name__)
 
 CLAIM = "Claim"
@@ -50,26 +48,16 @@ CLAIM = "Claim"
 CLAIM_PAGE = 4000
 RESOLUTION_PAGE = 8000
 
-# A ceiling on total pages, so a runaway run cannot turn one question into an
-# unbounded read. Reaching it is reported rather than absorbed.
-MAX_PAGES = 25
+# A ceiling on total pages, so a runaway read cannot hang a question forever.
+# Reaching it raises: adjudication over a silently truncated set produces edges
+# that look authoritative and are not, and a slow read is recoverable where a
+# wrong graph is not.
+MAX_PAGES = 200
 
 
-def canonical_fact(subject: str, predicate: str) -> tuple[str, str] | None:
-    """The fact a claim is about, named the way the adjudicator names it.
+class IncompleteRead(RuntimeError):
+    """A paged read hit its ceiling before returning everything."""
 
-    Raw predicates are not the unit of a disagreement — the ontology is. One
-    document saying `has job title` and another saying `works as` are talking
-    about the same fact, and selecting the claims to re-adjudicate by raw
-    spelling missed exactly those pairs: 73 edges a full sweep found and the
-    incremental pass did not, every one of them an alias of `holds_title`.
-    """
-    if not subject or not predicate:
-        return None
-    alignment = align(predicate)
-    if not alignment.aligned or not alignment.predicate.can_conflict:
-        return None
-    return (subject.strip().casefold(), alignment.predicate.name)
 
 
 def _read_all(client: HydraClient, cypher: str, params: dict, page: int,
@@ -98,10 +86,10 @@ def _read_all(client: HydraClient, cypher: str, params: dict, page: int,
         out.extend(rows)
         if len(rows) < page:
             return out
-    logger.warning(
-        "stopped after %d pages of %d rows; some claims were not read and "
-        "disputes involving them will not be seen", MAX_PAGES, page)
-    return out
+    raise IncompleteRead(
+        f"read {MAX_PAGES} pages of {page} rows without reaching the end; "
+        "adjudicating over a truncated set would write edges that look "
+        "authoritative and are not")
 
 
 def load_subject_identity(client: HydraClient, run_id: str) -> dict:
@@ -166,17 +154,22 @@ def reconcile_conflicts(client: HydraClient, run_id: str, dsids, *,
         return report
 
     # Only the facts the new documents actually assert — everything else was
-    # adjudicated when it arrived. Compared on the *canonical* fact, so a
-    # document saying `has job title` reaches the existing `works as` claims.
-    touched = {fact for row in rows if row["dsid"] in targets
-               for fact in [canonical_fact(row["subject"], row["predicate"])]
-               if fact is not None}
+    # adjudicated when it arrived. Keyed by `group_key`, which is the same
+    # function adjudication uses, so selection cannot disagree with it about
+    # what counts as the same fact. Both previous defects were exactly that
+    # disagreement: once over predicate spelling, once over subject spelling.
+    identity = load_subject_identity(client, run_id)
+    keys = {row["claim_id"]: group_key(row["dsid"], row["subject"],
+                                       row["predicate"], identity)
+            for row in rows}
+    touched = {keys[row["claim_id"]] for row in rows
+               if row["dsid"] in targets and keys[row["claim_id"]] is not None}
     report.facts_examined = len(touched)
     if not touched:
         return report
 
     records = [ClaimRecord(**row) for row in rows
-               if canonical_fact(row["subject"], row["predicate"]) in touched]
+               if keys[row["claim_id"]] in touched]
     if not records:
         return report
 
@@ -186,8 +179,7 @@ def reconcile_conflicts(client: HydraClient, run_id: str, dsids, *,
     timestamps = {r.dsid: r.timestamp for r in records if getattr(r, "timestamp", None)}
     order = sorted(timestamps, key=lambda d: timestamps[d])
     conflicts, _stats = detect_conflicts(
-        records, document_order=order,
-        subject_identity=load_subject_identity(client, run_id))
+        records, document_order=order, subject_identity=identity)
     report.conflicts_found = len(conflicts)
     if not conflicts:
         return report
@@ -241,10 +233,11 @@ def prune_superseded(client: HydraClient, run_id: str,
     Edge ids are recomputed from the endpoints rather than read back: the engine
     will not return `r.id` for a relationship. See docs/engine-notes.md.
     """
-    rows = client.bolt_read(
+    rows = _read_all(
+        client,
         "MATCH (a:Claim)-[e:CONFLICTS_WITH]->(b:Claim) WHERE e.run_id = $r "
-        "RETURN a.id AS src, b.id AS dst, e.predicate AS predicate LIMIT 20000",
-        {"r": run_id})
+        "RETURN a.id AS src, b.id AS dst, e.predicate AS predicate",
+        {"r": run_id}, CLAIM_PAGE, "ORDER BY a.id")
     stale = [edge_identity("CONFLICTS_WITH", row["src"], row["dst"],
                            row["predicate"] or "").id
              for row in rows if (row["src"], row["dst"]) not in justified]

@@ -19,22 +19,21 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tracegraph.conflicts import ClaimRecord, detect_conflicts
-from tracegraph.reconcile import load_subject_identity, prune_superseded  # noqa: E402
+from tracegraph.reconcile import (  # noqa: E402
+    load_claims as paged_claims,
+    load_subject_identity,
+    prune_superseded,
+)  # noqa: E402
 from tracegraph.hydra_client import HydraClient  # noqa: E402
 from tracegraph.ids import IdRegistry, edge_identity  # noqa: E402
 from tracegraph.loader import Checkpointer, upsert_edges  # noqa: E402
 
 
 def load_claims(client: HydraClient, run_id: str) -> list[ClaimRecord]:
-    rows = client.bolt_read(
-        "MATCH (d:Document)-[:ASSERTS]->(c:Claim)-[:SUPPORTED_BY]->(s:EvidenceSpan) "
-        "WHERE c.run_id = $r "
-        "RETURN c.id AS claim_id, c.dsid AS dsid, d.source_type AS source_type, "
-        "c.subject AS subject, c.predicate AS predicate, c.object AS object, "
-        "c.confidence AS confidence, s.quote AS quote, d.timestamp AS timestamp "
-        "LIMIT 8000",
-        {"r": run_id})
-    return [ClaimRecord(**row) for row in rows]
+    """Every claim in the run, through the same paged reader the incremental
+    pass uses — a flat LIMIT here would make the authoritative sweep judge each
+    dispute against an arbitrary subset the moment the graph outgrew it."""
+    return [ClaimRecord(**row) for row in paged_claims(client, run_id)]
 
 
 def main() -> int:

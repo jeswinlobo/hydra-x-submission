@@ -480,6 +480,11 @@ class OnDemandIngestor:
                 "vertex": mid, "status": "resolved", "method": outcome.method,
                 "candidates": len(outcome.candidates),
                 "reason": outcome.evidence[:300],
+                # Which identity, not merely that there was one. Conflict
+                # adjudication reads this to tell one person from another with
+                # the same name, and reads it off the mention because walking
+                # RESOLVES_TO costs 7.6s against 0.5s here.
+                "entity": target,
             })
             if channel_id is not None:
                 key = (outcome.person_key, channel)
@@ -542,6 +547,7 @@ class OnDemandIngestor:
                     "vertex": mid, "status": "unresolved",
                     "method": METHOD_UNRESOLVED, "candidates": len(candidates),
                     "reason": (decision.reason or "")[:300],
+                    "entity": 0,
                 })
                 continue
 
@@ -558,6 +564,7 @@ class OnDemandIngestor:
                 "vertex": mid, "status": "resolved",
                 "method": METHOD_GRAPH_EVIDENCE, "candidates": len(candidates),
                 "reason": decision.reason[:300],
+                "entity": decision.winner.entity_id,
             })
 
         if graph_resolves:

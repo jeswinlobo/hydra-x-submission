@@ -211,6 +211,38 @@ def _recency(record: ClaimRecord, predicate: Predicate,
     return round(position / (len(ordering) - 1), 3)
 
 
+def group_key(dsid: str, subject: str, predicate: str,
+              identity: Mapping[tuple[str, str], int] | None = None,
+              ) -> tuple[str, str] | None:
+    """The fact a claim is about, or None if it cannot be contested.
+
+    This is the single definition of "the same fact", and it exists because
+    having two was the bug — twice. Selecting which claims to re-adjudicate
+    computed the key one way while adjudication computed it another, so the two
+    disagreed about what counted as the same fact and the incremental pass
+    silently missed pairs the full sweep found.
+
+    First it went wrong on the predicate: selection compared the raw spelling,
+    so `has job title` never reached `works as` — 73 edges. Then on the subject:
+    selection compared the surface, so `S. Ratnaparkhi` never reached `Sam` even
+    though the resolver had already decided they are one person.
+
+    Both callers now ask this. A fact is identified by *who or what* it is about
+    — the resolved identity where there is one, the name otherwise, since most
+    subjects are not people — and by the *canonical* predicate, never the raw
+    one.
+    """
+    if not subject or not predicate:
+        return None
+    alignment = align(predicate)
+    if not alignment.aligned or not alignment.predicate.can_conflict:
+        return None
+    surface = subject.strip().casefold()
+    entity = (identity or {}).get((dsid, surface))
+    who = f"entity:{entity}" if entity is not None else f"name:{surface}"
+    return (who, alignment.predicate.name)
+
+
 def detect_conflicts(
     records: Iterable[ClaimRecord],
     *,
@@ -248,17 +280,14 @@ def detect_conflicts(
         if not alignment.aligned:
             unmapped[record.predicate.strip().casefold()] += 1
             continue
-        predicate = alignment.predicate
         # Only a single-valued relation can be contradicted. For everything
         # else, differing objects are simply more of the same fact.
-        if not predicate.can_conflict:
+        key = group_key(record.dsid, record.subject, record.predicate, identity)
+        if key is None:
             continue
-        subject = record.subject.strip().casefold()
-        # Prefer who the graph says this is over what the document called them.
-        entity = identity.get((record.dsid, subject))
-        key = f"entity:{entity}" if entity is not None else f"name:{subject}"
-        grouped[(key, predicate.name)].append(record)
-        display_subject[key] = record.subject.strip()
+        predicate = alignment.predicate
+        grouped[key].append(record)
+        display_subject[key[0]] = record.subject.strip()
         aligned_predicates[predicate.name] = predicate
 
     conflicts: list[Conflict] = []

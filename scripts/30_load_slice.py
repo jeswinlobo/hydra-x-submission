@@ -356,24 +356,28 @@ def main() -> int:
                                      "run_id"],
                          checkpointer=checkpointer)
 
-        # Statuses last, so every mention carries its own outcome.
+        # Statuses last, so every mention carries its own outcome — including
+        # *which* identity it resolved to. Conflict adjudication reads
+        # `Mention.entity` to tell two people with one name apart; omitting it
+        # here left the first conflict sweep of a fresh build grouping by name,
+        # which is the very failure the resolver had already avoided.
         status_rows = [
             {"vertex": mention_ids[(doc_id, m.start, m.end)], "status": "resolved",
              "method": r.method, "candidates": len(r.candidates),
-             "reason": r.evidence[:300]}
+             "reason": r.evidence[:300], "entity": entity_ids[r.person_key]}
             for doc_id, m, r, _ in direct
         ] + [
             {"vertex": row["src"], "status": "resolved",
              "method": METHOD_GRAPH_EVIDENCE, "candidates": row["candidates"],
-             "reason": row["evidence"][:300]}
+             "reason": row["evidence"][:300], "entity": row["dst"]}
             for row in graph_resolves
         ] + [
             {"vertex": mid, "status": "unresolved", "method": method,
-             "candidates": count, "reason": (reason or "")[:300]}
+             "candidates": count, "reason": (reason or "")[:300], "entity": 0}
             for mid, method, count, reason in unresolved
         ]
         load_nodes(MENTION, status_rows,
-                   ["status", "method", "candidates", "reason"])
+                   ["status", "method", "candidates", "reason", "entity"])
 
         print(f"  graph decided {decided}/{len(ambiguous)} ambiguous surfaces "
               f"in {evidence.queries} queries")
