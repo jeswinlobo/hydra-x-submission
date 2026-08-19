@@ -208,10 +208,16 @@ def _corroboration(
     `near_duplicates` maps each dsid to a canonical representative of its
     near-duplicate cluster (see `neardup.py`), so two documents that are edited
     copies of one another count once even when their extracted quotes differ in
-    wording. Measured on the ingested corpus, that second discount catches a
-    class the first cannot: two Slack threads with **distinct doc_ids and
-    byte-identical bodies**, which the ingest-time doc_id dedup does not see at
-    all because it compares ids rather than content.
+    wording. On the ingested corpus that second discount catches a class the
+    first cannot: two Slack threads with **distinct doc_ids and byte-identical
+    bodies**, which the ingest-time doc_id dedup does not see at all because it
+    compares ids rather than content.
+
+    Supplied by `scripts/55_conflicts.py`, which computes the clusters offline —
+    the comparison is quadratic over the working set, which is fine in a sweep
+    and would not be fine in a request. The incremental reconciler at ingest
+    does not pass it, so a freshly written claim is adjudicated without the
+    discount until the next sweep.
     """
     if near_duplicates:
         canonical = {near_duplicates.get(d, d) for d in version.dsids}

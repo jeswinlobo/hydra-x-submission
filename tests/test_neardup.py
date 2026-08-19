@@ -196,3 +196,42 @@ class TestCorroborationDiscount:
         from tracegraph.conflicts import _corroboration
         version = self._version(["a", "b"])
         assert _corroboration(version, 4, {}) == _corroboration(version, 4)
+
+
+class TestCanonicalMap:
+    """Union-find, because similarity is not transitive."""
+
+    @staticmethod
+    def _dups(pairs):
+        from tracegraph.neardup import NearDuplicate
+        return [NearDuplicate(a, b, 0.9) for a, b in pairs]
+
+    def test_a_chain_collapses_to_one_representative(self):
+        """a~b and b~c must put a, b and c in ONE cluster, not two.
+
+        This is the case a naive {right: left} dict gets wrong, and getting it
+        wrong double-counts the cluster — the exact error this exists to avoid.
+        """
+        from tracegraph.neardup import canonical_map
+        m = canonical_map(self._dups([("b", "c"), ("a", "b")]))
+        roots = {m.get(x, x) for x in ("a", "b", "c")}
+        assert len(roots) == 1
+
+    def test_the_representative_is_stable_regardless_of_pair_order(self):
+        from tracegraph.neardup import canonical_map
+        a = canonical_map(self._dups([("a", "b"), ("b", "c")]))
+        b = canonical_map(self._dups([("c", "b"), ("b", "a")]))
+        assert {x: a.get(x, x) for x in "abc"} == {x: b.get(x, x) for x in "abc"}
+
+    def test_separate_clusters_stay_separate(self):
+        from tracegraph.neardup import canonical_map
+        m = canonical_map(self._dups([("a", "b"), ("y", "z")]))
+        assert m.get("b", "b") != m.get("z", "z")
+
+    def test_documents_with_no_duplicate_are_absent(self):
+        from tracegraph.neardup import canonical_map
+        assert canonical_map(self._dups([("a", "b")])).keys() == {"b"}
+
+    def test_no_duplicates_is_an_empty_map(self):
+        from tracegraph.neardup import canonical_map
+        assert canonical_map([]) == {}

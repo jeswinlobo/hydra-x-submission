@@ -67,7 +67,13 @@ DEFAULT_THRESHOLD = 0.60
 
 _WORD = re.compile(r"[a-z0-9]+")
 
-_MASK = (1 << 61) - 1  # a Mersenne prime, so the permutations stay well spread
+# The multipliers are masked to 61 bits, so `(a*x + b) & _MASK` is arithmetic
+# mod 2^61 rather than mod the Mersenne prime 2^61-1. That is still a valid
+# permutation family, but for a different reason than a prime modulus would
+# give: `a` is forced odd below, and odd multipliers are invertible mod a power
+# of two. Said plainly because an earlier version of this comment claimed the
+# prime was doing the work, which would have misled anyone checking the maths.
+_MASK = (1 << 61) - 1
 
 
 def _permutations(count: int = PERMUTATIONS) -> list[tuple[int, int]]:
@@ -163,3 +169,49 @@ def find_near_duplicates(
             if score >= threshold:
                 found.append(NearDuplicate(left, right, round(score, 4)))
     return sorted(found, key=lambda d: -d.similarity)
+
+
+def canonical_map(
+    duplicates: "list[NearDuplicate]",
+) -> dict[str, str]:
+    """Collapse near-duplicate pairs into one representative per cluster.
+
+    Union-find rather than a `{right: left}` dict, because similarity is **not
+    transitive** and the pairs arrive independently. Given `a~b` and `b~c`, a
+    naive mapping yields `b->a` and `c->b`, so `a` and `c` canonicalise to
+    different representatives and the same cluster is counted twice — which is
+    the double-count the caller uses this to avoid. Union-find gives every
+    member of a connected component the same representative whether or not each
+    pair was directly compared.
+
+    The representative is the lexicographically smallest dsid in the component,
+    so the map is stable across runs and independent of pair ordering.
+    """
+    parent: dict[str, str] = {}
+
+    def find(x: str) -> str:
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: str, b: str) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            # Smallest wins, which is what makes the representative stable.
+            lo, hi = (ra, rb) if ra < rb else (rb, ra)
+            parent[hi] = lo
+
+    for dup in duplicates:
+        union(dup.left, dup.right)
+
+    # Only members of a real cluster are returned. A document with no
+    # near-duplicate maps to itself implicitly, and including it would make the
+    # map the size of the corpus for no benefit.
+    out: dict[str, str] = {}
+    for node in parent:
+        root = find(node)
+        if root != node:
+            out[node] = root
+    return out

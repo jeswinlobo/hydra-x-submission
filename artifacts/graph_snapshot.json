@@ -1,9 +1,9 @@
 {
-  "recorded_at": "2026-08-19T10:21:25+00:00",
+  "recorded_at": "2026-08-19T16:58:15+00:00",
   "checks_passed": 14,
   "checks_total": 14,
   "run_id": "run1786954555",
-  "read_epoch": 21628,
+  "read_epoch": 22786,
   "nodes": {
     "Document": 1421,
     "Entity": 1271,

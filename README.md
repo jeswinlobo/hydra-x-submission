@@ -625,7 +625,7 @@ round-trips a real query first, because a port is not proof.
 ## Verifying the claims above
 
 ```bash
-uv run pytest                             # 297 tests, 27 against the live engine
+uv run pytest                             # 305 tests, 27 against the live engine
 uv run python scripts/35_verify_gate.py   # 14 checks, read back from the graph
 uv run python scripts/36_repair_graph.py  # audit identities and undecided mentions
 uv run python scripts/37_rebuild_resolution.py  # re-decide every identity, report drift

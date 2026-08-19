@@ -53,16 +53,32 @@ class TestFalsePositivesAreRefused:
     @pytest.mark.parametrize("key", [
         "AES-256", "SHA-256", "SHA-1", "RSA-2048", "MD-5", "TLS-13",
         "SOC-2", "PCI-3", "ISO-27001", "RFC-2119", "CVE-2026", "SEV-1",
-        "UTF-8", "HTTP-2", "SLA-99", "GPU-4", "INT-8", "FP-16", "USD-100",
+        "UTF-8", "HTTP-2", "USD-100",
     ])
     def test_a_standard_or_cipher_is_not_a_ticket(self, key):
         """These have a ticket's exact shape and none of its meaning."""
         assert _ticket_keys([ref(key)]) == []
 
-    @pytest.mark.parametrize("key", ["INC-2026", "REL-1999", "Q-2025"])
-    def test_a_year_shaped_number_is_refused(self, key):
+    @pytest.mark.parametrize("key", ["INT-4501", "SLA-99", "FP-16", "GPU-4"])
+    def test_an_ambiguous_prefix_is_now_kept(self, key):
+        """Deliberately reversed after review: every one of these is a plausible
+        real project key — `INT` for Integrations is common — and excluding them
+        lost real tickets to avoid hypothetical noise. The asymmetry runs the
+        other way here: a missed ticket silently removes a cross-document link,
+        while a spurious one adds an edge the >=2-document rule then ignores."""
+        assert _ticket_keys([ref(key)]) == [key]
+
+    @pytest.mark.parametrize("key", ["INC-2026", "REL-1999", "FY-2025"])
+    def test_a_year_shaped_number_is_refused_for_date_prefixes(self, key):
         """`INC-2026` is a date, not the two-thousand-and-twenty-sixth incident."""
         assert _ticket_keys([ref(key)]) == []
+
+    @pytest.mark.parametrize("key", ["ENG-1999", "PROJ-2024", "ENG-2100"])
+    def test_a_year_shaped_number_survives_a_normal_prefix(self, key):
+        """The year rule used to apply to every prefix, which silently discarded
+        `ENG-1999` — and `ENG-` is the most common prefix in this corpus, so the
+        blind spot was live rather than theoretical."""
+        assert _ticket_keys([ref(key)]) == [key]
 
     def test_a_four_digit_counter_outside_year_range_is_kept(self):
         """Real counters do reach four digits; only year-like ones are dropped."""

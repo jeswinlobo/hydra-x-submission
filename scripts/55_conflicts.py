@@ -19,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tracegraph.conflicts import ClaimRecord, detect_conflicts
+from tracegraph.neardup import canonical_map, find_near_duplicates  # noqa: E402
 from tracegraph.reconcile import (  # noqa: E402
     conflict_edge_rows,
     load_claims as paged_claims,
@@ -35,6 +36,41 @@ def load_claims(client: HydraClient, run_id: str) -> list[ClaimRecord]:
     pass uses — a flat LIMIT here would make the authoritative sweep judge each
     dispute against an arbitrary subset the moment the graph outgrew it."""
     return [ClaimRecord(**row) for row in paged_claims(client, run_id)]
+
+
+def near_duplicate_map(client, run_id: str) -> dict[str, str]:
+    """dsid -> canonical member of its near-duplicate cluster.
+
+    Bodies are re-read from parquet rather than the graph, because parquet is
+    the authoritative text store and the graph deliberately does not copy bodies
+    into it. Returns an empty map — never raises — if the corpus is unavailable,
+    since a missing near-duplicate discount degrades corroboration slightly
+    rather than making the sweep wrong.
+    """
+    try:
+        from tracegraph import config
+        from tracegraph.parquet_reader import RowLocator
+        from tracegraph.parsers import normalise_content
+
+        rows = client.bolt_read(
+            "MATCH (d:Document) WHERE d.run_id = $r RETURN d.dsid AS dsid",
+            {"r": run_id})
+        locator = RowLocator(config.locator_parquet(), config.locator_db(),
+                             require_complete=True)
+        try:
+            bodies = {}
+            for row in rows:
+                record = locator.fetch(row["dsid"])
+                if record:
+                    bodies[row["dsid"]] = normalise_content(
+                        record.get("content") or "")
+        finally:
+            locator.close()
+        return canonical_map(find_near_duplicates(bodies))
+    except Exception as exc:  # noqa: BLE001 - the sweep must still run
+        print(f"  near-duplicate detection unavailable ({exc}); "
+              "corroboration will not discount copies")
+        return {}
 
 
 def main() -> int:
@@ -75,8 +111,22 @@ def main() -> int:
         # not two versions of one person's employer.
         identity = load_subject_identity(client, run_id)
         print(f"  {len(identity)} resolved surfaces available to group by identity")
+
+        # Copies of one another are not independent evidence. Corroboration
+        # counts distinct supporting documents, so an edited copy counted twice
+        # inflates whichever version happened to be duplicated — and that is one
+        # of the four signals deciding which contradictory statement wins.
+        #
+        # Computed here rather than on the answer path: it is O(n^2) over the
+        # ingested working set, which is fine offline and would not be fine in a
+        # request. The sweep is where corroboration is recomputed anyway.
+        near = near_duplicate_map(client, run_id)
+        if near:
+            print(f"  {len(near)} document(s) fold into a near-duplicate cluster")
+
         conflicts, stats = detect_conflicts(
-            records, document_order=order, subject_identity=identity)
+            records, document_order=order, subject_identity=identity,
+            near_duplicates=near)
 
         print(f"run {run_id}: {len(records)} claims")
         print(f"  {stats['groups_examined']} single-valued subject+predicate groups")

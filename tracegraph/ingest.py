@@ -53,18 +53,31 @@ TICKET = "Ticket"
 # identical — `AES-256` and `PROJ-256` cannot be told apart without knowing what
 # `AES` is.
 _NOT_A_TICKET_PREFIX = frozenset({
+    # Ciphers, digests, key lengths and wire standards. These are unambiguous:
+    # no ticket scheme in this corpus uses them, and `AES-256` cannot be told
+    # from `PROJ-256` by shape alone.
     "AES", "SHA", "MD", "RSA", "ECDSA", "HMAC", "SSL", "TLS", "SSH", "GPG",
     "UTF", "ISO", "RFC", "ASCII", "HTTP", "HTTPS", "IPV", "IEEE", "ANSI",
     "SOC", "PCI", "HIPAA", "GDPR", "FIPS", "NIST", "CVE", "CWE", "CVSS",
-    "SEV", "P", "SLA", "SLO", "SLI", "TTL", "QPS", "RPS", "GPU", "CPU",
-    "RAM", "SSD", "NVME", "PCIE", "DDR", "INT", "FP", "BF", "FP16", "INT8",
-    "USD", "EUR", "GBP", "UTC", "GMT", "AM", "PM",
+    "SEV", "USD", "EUR", "GBP", "UTC", "GMT",
 })
 
-# A four-digit tail in a plausible year range is almost always a date rather
-# than a ticket number (`INC-2026`, `Q4-2025`). Real ticket counters do reach
-# four digits, so this only fires when the prefix is not already known to be a
-# ticket scheme in this corpus — see `_ticket_keys`.
+# Deliberately *not* on that list, having been on it and been wrong: INT, SLA,
+# SLO, SLI, FP, BF, RAM, CPU, GPU, DDR, PCIE, NVME, SSD, TTL, QPS, RPS. Every
+# one is a plausible real project key — `INT` for Integrations is common — and
+# excluding them cost real tickets to avoid hypothetical noise. The asymmetry
+# runs the other way here than in near-duplicate detection: a missed ticket
+# silently removes a cross-document link, while a spurious one adds an edge that
+# the >=2-document requirement then ignores anyway.
+#
+# `P` was on the list too and could never have fired: TICKET_KEY_RE requires
+# `[A-Z]{2,10}`, so a one-character prefix is lost by the regex, not the filter.
+
+# Four-digit tails in a plausible year range are dates rather than counters —
+# but only for prefixes that actually name periods. Applying this to everything
+# discarded `ENG-1999` and `PROJ-2024`, and `ENG-` is the most common prefix in
+# this corpus, so the blind spot was live rather than theoretical.
+_DATE_PREFIX = frozenset({"INC", "REL", "Q", "FY", "H", "CY", "W", "SPRINT"})
 _YEAR_LIKE = range(1990, 2101)
 
 
@@ -104,7 +117,8 @@ def _ticket_keys(references) -> list[str]:
         prefix, _, number = key.partition("-")
         if prefix in _NOT_A_TICKET_PREFIX:
             continue
-        if len(number) == 4 and number.isdigit() and int(number) in _YEAR_LIKE:
+        if (prefix in _DATE_PREFIX and len(number) == 4 and number.isdigit()
+                and int(number) in _YEAR_LIKE):
             continue
         if key not in seen:
             seen.add(key)
