@@ -120,8 +120,8 @@ wrong merge is worse than an honest "cannot tell".
 
 **What those 1,074 decisions look like when you read them, which is less than
 the query shape suggests.** Every `graph_evidence` edge stores its own
-justification, and every one of the 1,074 ends the same way: *"against no graph
-evidence for the next of N candidates."* The runner-up scored zero in all of
+justification, and 1,071 of the 1,074 end the same way: *"against no graph
+evidence for the next of N candidates."* The runner-up scored zero in all but three of
 them, which is why almost all carry the identical confidence 0.95. So the traversal
 is not adjudicating between two contenders with competing support — it is
 finding the single candidate with any presence here at all, and recording that
@@ -222,7 +222,8 @@ decisions.
 strictly-labelled mentions, though note what that can and cannot show: every
 directory full name is unique, so a false merge between two employees cannot
 appear in this label set at all. The stronger evidence is gold-free — a sweep of
-all 1,257 entities finds one that disagrees with itself.
+all 1,271 entities finds one that disagrees with itself — Grace O'Connor,
+named below.
 
 Splitting one person across several entities was the whole of the recall loss
 and is largely fixed. Two numbers, because they count different things and
@@ -233,14 +234,14 @@ scored mentions, **33 of 106 covered employees still map to more than one
 vertex** — mostly address spellings that appear in no labelled mention, so they
 cost nothing in the table above and are still splits.
 
-Read the recall, not the precision. The script says so itself, at length: 2,728
+Read the recall, not the precision. The script says so itself, at length: 2,764
 of 3,007 strict labels come from the same address tier 1 keys on, and every
 directory full name is unique, so a false merge between two employees *cannot*
 appear in that label set. And the graph-evidence tier — the one that justifies
-HydraDB — is effectively unscorable here: 1,055 of its 1,074 decisions are on
-one-token surfaces and 1,054 land on people the directory does not contain. Its
+HydraDB — is effectively unscorable here: 1,063 of its 1,074 decisions are on
+one-token surfaces and 1,062 land on people the directory does not contain. Its
 12 decidable decisions were all correct, which is a real result on a sample too
-small to lead with. The oracle covers 106 of 1,257 entities; the rest are
+small to lead with. The oracle covers 106 of 1,271 entities; the rest are
 customers and vendors it was never going to see.
 
 **Resolution is judged in both directions, so it refuses in both.** Splitting one
@@ -251,7 +252,7 @@ merge — the identities must also share an organisational root:
 
 | | |
 |---|---|
-| `grace@redwood.com` + `grace.oconnor@redwood.ai` + `grace@redwoodinference.com` | one Grace O'Connor, 14 addresses |
+| `grace@redwood.com` + `grace.oconnor@redwood.ai` + `grace@redwoodinference.com` | Grace O'Connor, 14 addresses down to 2 entities |
 | `priya@mediloop.com` + `priya.sharma@procureco.com` | two Priya Sharmas |
 
 Getting that wrong is not hypothetical. An earlier rule merged on name alone and
@@ -269,8 +270,13 @@ it would strand whatever references it — so the decision is written as
 as long as the process: the next resolver adopted the folded vertex again as its
 own protected identity, two protected identities are never merged, and
 `Camila Reyes` was back to six candidates on restart while mention-level splits
-read as fixed. A fresh resolver now adopts 1,202 identities rather than 1,257,
-and Camila, Naomi, Tessa and Grace each resolve to one.
+read as fixed. A fresh resolver now adopts 1,216 identities rather than 1,271,
+and Camila, Naomi, Tessa and Grace each resolve to one *per organisation*. Be
+exact about what that does and does not mean: counting entities rather than
+scored mentions, `artifacts/identity_eval.json` still records Camila across six
+address spellings, Naomi five, Tessa four and Grace two. Those extra vertices
+carry no labelled mention, so they cost nothing in the table above and they are
+still splits. Grace is the one identity the gold-free sweep flags.
 
 The gate holds both halves: no mention carries two resolutions, and no full name
 is split across live vertices *at the same organisation*. Ninety-eight names are
@@ -303,14 +309,14 @@ Measured live: **24–49ms**, Slack reaching Google Drive.
 
 It matters most for the six sources with no dedicated parser. Those fall through
 to `generic`, which extracts no mentions at all, so a ticket key is the only
-structure recoverable from them. Over the 1,285 ingested documents: **627
+structure recoverable from them. Over the 1,421 ingested documents: **627
 tickets, 662 `REFERENCES` edges, 31 tickets appearing in two or more documents,
 joining 57 documents** — and documents carrying a ticket span all nine sources
 (gmail 243, slack 114, linear 25, google_drive 19, jira 11, github 10,
 confluence 9, hubspot 3, fireflies 1).
 
 Be precise about what that is worth: 31 shared tickets is a small number, and
-the reason is the graph holds 1,285 of 511,962 documents. Two documents citing
+the reason is the graph holds 1,421 of 511,962 documents. Two documents citing
 the same ticket are both present only rarely at that ratio, and the yield grows
 roughly quadratically with the ingested slice. The traversal is correct and
 cheap; its coverage is a function of how much has been ingested, not of the
@@ -427,8 +433,8 @@ drift apart. Be precise about its size: the engine hands back a flat alternating
 list, so a single participation edge arrives as three elements and is **one
 hop**, shown as one. The multi-hop reasoning is in the scoring that precedes it —
 a two-hop co-occurrence walk and a one-hop participation check per candidate —
-not in the rendered path. `algo.SSpaths` and `algo.MSpaths` are pinned by contract
-tests (`tests/test_hydra_contract.py`) but are not on the answer path.
+not in the rendered path. `algo.MSpaths` is pinned by a contract test; `algo.SSpaths` is not, and
+neither is on the answer path.
 
 Every answer carries the engine's own `read_epoch` and bookmark, so the
 consistency position that produced it is visible alongside it.
@@ -592,7 +598,12 @@ capped at 6 GB in `docker-compose.yml`, so lower that first on a smaller machine
 ```bash
 git clone https://github.com/jeswinlobo/hydra-x-submission && cd hydra-x-submission
 cp .env.example .env          # add ANTHROPIC_API_KEY
-# corpus: https://huggingface.co/datasets/onyx-dot-app/EnterpriseRAG-Bench
+# The corpus, ~1.4 GB and Git LFS. Use the CLI rather than `git clone`: without
+# `git lfs` installed a clone leaves a 130-byte pointer file at the right path,
+# which passes bootstrap's existence check and then fails inside pyarrow minutes
+# later. MIT licensed, not gated.
+uv run huggingface-cli download onyx-dot-app/EnterpriseRAG-Bench \
+    --repo-type dataset --local-dir dataset/EnterpriseRAG-Bench
 #   -> dataset/EnterpriseRAG-Bench/data/{documents,questions}/test.parquet
 
 ./scripts/bootstrap.sh        # everything, in order, ~10 minutes
@@ -650,8 +661,10 @@ image, with the probes that produced it. Several would have been silent bugs:
   overflowing it makes the label unscannable *including by the delete that would
   undo it*.
 
-`tests/test_hydra_contract.py` pins each one, so an engine upgrade that breaks an
-assumption fails loudly instead of corrupting the graph quietly.
+`tests/test_hydra_contract.py` pins the first three, so an engine upgrade that
+breaks one fails loudly rather than corrupting the graph quietly. The label-index
+ceiling is not pinned — reproducing it means deliberately overflowing a label,
+which leaves the store unrepairable, so it is documented rather than tested.
 
 ## Documentation
 
@@ -671,4 +684,6 @@ MIT (`LICENSE`). HydraDB is AGPL-3.0 and is used as an unmodified, separately
 containerised service over its network APIs — no source is vendored or modified.
 Full third-party notices in `NOTICE.md`.
 
-Built by [Jeswin Lobo](https://github.com/jeswinlobo) for Hack Hydra 2026.
+Built for Hack Hydra 2026 by [Jeswin Lobo](https://github.com/jeswinlobo),
+Sheldon Menezes and Stalin Prevan Crasta. Contributions are set out in
+`SUBMISSION.md` and visible in the commit history.

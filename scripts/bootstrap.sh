@@ -33,8 +33,23 @@ grep -q '^ANTHROPIC_API_KEY=.\+' .env || \
 CORPUS="dataset/EnterpriseRAG-Bench/data/documents/test.parquet"
 QUESTIONS="dataset/EnterpriseRAG-Bench/data/questions/test.parquet"
 [[ -f "$CORPUS" ]] || fail "corpus not found at $CORPUS
-  get it from https://huggingface.co/datasets/onyx-dot-app/EnterpriseRAG-Bench"
+  uv run huggingface-cli download onyx-dot-app/EnterpriseRAG-Bench \\
+      --repo-type dataset --local-dir dataset/EnterpriseRAG-Bench"
 [[ -f "$QUESTIONS" ]] || fail "questions not found at $QUESTIONS (needed by scripts/75_retrieval_eval.py)"
+
+# Existence is not enough, because the failure it misses is the likely one. The
+# corpus is Git LFS, so cloning the dataset repo without `git lfs` installed
+# leaves a ~130-byte pointer file at exactly the right path: the check above
+# passes, and the run then dies inside pyarrow several minutes later with an
+# error about the parquet magic bytes. Check the size instead — the real file is
+# ~1.4 GB, and anything under a megabyte is a pointer, not a corpus.
+for f in "$CORPUS" "$QUESTIONS"; do
+  size=$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f" 2>/dev/null || echo 0)
+  [[ "$size" -gt 1000000 ]] || fail "$f is $size bytes — that is a Git LFS pointer, not the file.
+  Install git-lfs and re-pull, or download with:
+      uv run huggingface-cli download onyx-dot-app/EnterpriseRAG-Bench \\
+          --repo-type dataset --local-dir dataset/EnterpriseRAG-Bench"
+done
 
 # ~7GB: the 1.4GB corpus, a 1.4GB re-chunked copy, and a 2.5GB lexical index.
 FREE_GB=$(df -BG --output=avail . | tail -1 | tr -dc '0-9')

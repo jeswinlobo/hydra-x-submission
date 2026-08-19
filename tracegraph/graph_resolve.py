@@ -204,31 +204,50 @@ class GraphEvidence:
         rows = self.client.bolt_read(
             # Two sources of candidates in one read: people already resolved in
             # this document, and people who participate in its channel.
+            #
+            # The initial is *not* filtered here, and that is a correction rather
+            # than an oversight. `STARTS WITH` is case-sensitive in this engine,
+            # and `Entity.name` is the first surface ever seen for a person —
+            # which in a mail corpus is usually a bare address, so 21% of
+            # entities are named `sergio.alvarez@redwood.ai` rather than
+            # `Sergio Alvarez`. Filtering on `'S'` in Cypher hid 42 of 217
+            # same-initial people, and hiding a *true* candidate is far worse
+            # than returning extra ones: it leaves a wrong candidate as the sole
+            # scorer, which is exactly how the caller's guard concludes it has an
+            # unambiguous answer. The filter now runs caller-side, case-folded.
             "MATCH (e:Entity)<-[:RESOLVES_TO]-(m:Mention)-[:MENTIONED_IN]->"
             "(d:Document {id: $did}) "
-            "WHERE e.run_id = $r AND e.name STARTS WITH $initial "
+            "WHERE e.run_id = $r "
             "RETURN DISTINCT e.id AS eid, e.key AS key, e.name AS name",
-            {"did": int(document_id), "r": self.run_id, "initial": initial},
+            {"did": int(document_id), "r": self.run_id},
         )
         seen = {r["eid"]: r for r in rows}
 
         if channel_id is not None:
             for row in self.client.bolt_read(
                 "MATCH (e:Entity)-[:PARTICIPATED_IN]->(c:Channel {id: $cid}) "
-                "WHERE e.run_id = $r AND e.name STARTS WITH $initial "
+                "WHERE e.run_id = $r "
                 "RETURN DISTINCT e.id AS eid, e.key AS key, e.name AS name",
-                {"cid": int(channel_id), "r": self.run_id, "initial": initial},
+                {"cid": int(channel_id), "r": self.run_id},
             ):
                 seen.setdefault(row["eid"], row)
 
         self.queries += 1 + (1 if channel_id is not None else 0)
 
-        proposed: list[tuple[str, int, int, int]] = []
+        # Every row here already co-occurs or participates by construction — the
+        # first query matched inside this document, the second inside this
+        # channel — so re-reading those counts cannot exclude anybody. They are
+        # fetched only to report *how much* evidence each candidate has, and the
+        # entity id is carried through rather than re-derived from the key.
+        proposed: list[tuple[str, str, int, int, int]] = []
+        folded = initial.casefold()
         for eid, row in seen.items():
+            name = row["name"] or ""
+            if not name.casefold().startswith(folded):
+                continue
             co = self.co_occurrence(eid, document_id)
-            part = self.participation(eid, channel_id) if channel_id else 0
-            if co or part:
-                proposed.append((row["key"], row["name"], co, part))
+            part = self.participation(eid, channel_id) if channel_id is not None else 0
+            proposed.append((row["key"], name, co, part, eid))
         return proposed
 
     def evidence_path(self, entity_id: int, channel_id: int) -> list | None:

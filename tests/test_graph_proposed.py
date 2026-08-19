@@ -74,7 +74,7 @@ def call(surface, proposed, *, kind=PERSON, entity_ids=None, channel_id=7):
 class TestTheBriefsExample:
     def test_sam_resolves_to_soham_from_structure_alone(self):
         """The headline case. No token overlap; the graph decides."""
-        result, _ = call("sam", [(SOHAM_KEY, "Soham Ratnaparkhi", 4, 1)])
+        result, _ = call("sam", [(SOHAM_KEY, "Soham Ratnaparkhi", 4, 1, SOHAM_ID)])
         assert result is not None
         entity_id, reason, confidence = result
         assert entity_id == SOHAM_ID
@@ -83,16 +83,16 @@ class TestTheBriefsExample:
         assert "4 co-mention" in reason and "1 shared channel" in reason
 
     def test_it_asks_the_graph_for_the_right_initial(self):
-        _, ev = call("sam", [(SOHAM_KEY, "Soham Ratnaparkhi", 4, 1)])
-        assert ev.asked_with == [("S", 42, 7)]
+        _, ev = call("sam", [(SOHAM_KEY, "Soham Ratnaparkhi", 4, 1, SOHAM_ID)])
+        assert ev.asked_with == [("s", 42, 7)]
 
     def test_participation_alone_is_enough(self):
         """A shared channel with no co-mention still counts as evidence."""
-        result, _ = call("sam", [(SOHAM_KEY, "Soham Ratnaparkhi", 0, 2)])
+        result, _ = call("sam", [(SOHAM_KEY, "Soham Ratnaparkhi", 0, 2, SOHAM_ID)])
         assert result is not None
 
     def test_co_occurrence_alone_is_enough(self):
-        result, _ = call("sam", [(SOHAM_KEY, "Soham Ratnaparkhi", 3, 0)])
+        result, _ = call("sam", [(SOHAM_KEY, "Soham Ratnaparkhi", 3, 0, SOHAM_ID)])
         assert result is not None
 
 
@@ -104,21 +104,22 @@ class TestTheGuardsRefuse:
         coin toss dressed as a decision.
         """
         result, _ = call("sam", [
-            (SOHAM_KEY, "Soham Ratnaparkhi", 4, 1),
-            ("email:samantha@acme.com", "Samantha Lewis", 2, 1),
+            (SOHAM_KEY, "Soham Ratnaparkhi", 4, 1, SOHAM_ID),
+            ("email:samantha@acme.com", "Samantha Lewis", 2, 1, 12345),
         ])
         assert result is None
 
-    def test_a_candidate_with_no_evidence_does_not_count(self):
-        """Only scoring candidates compete, so a bare listing is not a rival."""
+    def test_an_implausible_rival_does_not_block(self):
+        """`sam` is not a subsequence of `Priya Nair`, so it is not a rival."""
         result, _ = call("sam", [
-            (SOHAM_KEY, "Soham Ratnaparkhi", 4, 1),
-            ("email:samantha@acme.com", "Samantha Lewis", 0, 0),
+            (SOHAM_KEY, "Soham Ratnaparkhi", 4, 1, SOHAM_ID),
+            ("email:priya@acme.com", "Priya Nair", 3, 1, 12345),
         ])
         assert result is not None
 
-    def test_nothing_scoring_is_an_abstention(self):
-        result, _ = call("sam", [(SOHAM_KEY, "Soham Ratnaparkhi", 0, 0)])
+    def test_a_name_the_token_cannot_shorten_is_refused(self):
+        """The false merge the shared initial alone would allow: ben -> Barbara."""
+        result, _ = call("ben", [("email:b@acme.com", "Barbara Liu", 9, 9, 999)])
         assert result is None
 
     def test_an_empty_graph_proposal_is_an_abstention(self):
@@ -128,33 +129,33 @@ class TestTheGuardsRefuse:
     @pytest.mark.parametrize("surface", ["hi", "ok", "a", ""])
     def test_a_surface_too_short_to_be_a_name_is_refused(self, surface):
         """Below three characters this is noise, not a shortened name."""
-        result, _ = call(surface, [(SOHAM_KEY, "Soham Ratnaparkhi", 9, 9)])
+        result, _ = call(surface, [(SOHAM_KEY, "Soham Ratnaparkhi", 9, 9, SOHAM_ID)])
         assert result is None
 
     def test_a_multi_token_surface_is_refused(self):
         """Two tokens means the string tiers had something to work with."""
-        result, _ = call("sam carter", [(SOHAM_KEY, "Soham Ratnaparkhi", 9, 9)])
+        result, _ = call("sam carter", [(SOHAM_KEY, "Soham Ratnaparkhi", 9, 9, SOHAM_ID)])
         assert result is None
 
     def test_a_bot_is_never_a_person(self):
-        result, _ = call("deploybot", [(SOHAM_KEY, "Soham Ratnaparkhi", 9, 9)],
+        result, _ = call("deploybot", [(SOHAM_KEY, "Soham Ratnaparkhi", 9, 9, SOHAM_ID)],
                          kind=BOT)
         assert result is None
 
     def test_a_surface_matching_the_name_is_left_to_the_string_tiers(self):
         """`soham` already resolves by token subset; claiming it here would
         misreport which tier decided."""
-        result, _ = call("soham", [(SOHAM_KEY, "Soham Ratnaparkhi", 4, 1)])
+        result, _ = call("soham", [(SOHAM_KEY, "Soham Ratnaparkhi", 4, 1, SOHAM_ID)])
         assert result is None
 
     def test_an_unknown_entity_key_is_refused(self):
         """A proposal the id map cannot place is dropped, not guessed at."""
-        result, _ = call("sam", [("email:ghost@nowhere.com", "Sam Ghost", 4, 1)],
+        result, _ = call("sam", [("email:ghost@nowhere.com", "Sam Ghost", 4, 1, None)],
                          entity_ids={})
         assert result is None
 
     def test_no_channel_still_works_through_co_occurrence(self):
-        result, _ = call("sam", [(SOHAM_KEY, "Soham Ratnaparkhi", 5, 0)],
+        result, _ = call("sam", [(SOHAM_KEY, "Soham Ratnaparkhi", 5, 0, SOHAM_ID)],
                          channel_id=None)
         assert result is not None
 
@@ -162,12 +163,12 @@ class TestTheGuardsRefuse:
 class TestTheDecisionIsRecorded:
     def test_the_reason_states_what_the_graph_saw(self):
         """A decision nobody can audit is not better than a guess."""
-        result, _ = call("sam", [(SOHAM_KEY, "Soham Ratnaparkhi", 4, 1)])
+        result, _ = call("sam", [(SOHAM_KEY, "Soham Ratnaparkhi", 4, 1, SOHAM_ID)])
         _, reason, _ = result
         assert "no candidate shares this surface's tokens" in reason
         assert "the graph proposed" in reason
         assert "sole scoring candidate" in reason
-        assert "initial 'S'" in reason
+        assert "initial 's'" in reason
 
     def test_confidence_is_below_the_graph_evidence_tier(self):
         """This tier has no lexical corroboration, and its ceiling says so."""

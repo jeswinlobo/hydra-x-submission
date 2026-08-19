@@ -57,9 +57,11 @@ reasoning and every claim is checkable.
   `CONFLICTS_WITH` edges. Every version is kept with its own authority,
   corroboration, directness, and recency, and a winner is named only when the
   evidence justifies one.
-- **A deterministic controller.** The model writes prose; it does not decide what
-  is true, what may be cited, or whether a question is answerable. Each of those
-  is settled by a check that can fail.
+- **A deterministic controller.** The model writes prose and reports whether the
+  passages suffice; it does not decide what may be cited, whether a span is real,
+  or whether the answer sits on a dispute. Each of those is a check that can fail,
+  and abstention is shared: the controller abstains outright on empty evidence and
+  on no surviving citation.
 - **Ask & Inspect**, a single page over a live API — answer, citations, evidence
   subgraph, resolution panel, conflict panel, and the engine's real `read_epoch`.
 
@@ -93,8 +95,8 @@ evidence — verified live on the graph, both directions. This is the clearest
 case in the project of a question a vector index cannot answer at all.
 
 Merging is equally a refusal. Two people sharing a full name are folded together
-only when they also share an organisational root, so Grace O'Connor's fourteen
-Redwood spellings become one identity while Priya Sharma at mediloop.com and
+only when they also share an organisational root, so Grace O'Connor's Redwood
+spellings collapse to two entities, down from fourteen addresses while Priya Sharma at mediloop.com and
 Priya Sharma at procureco.com stay two. `scripts/37_rebuild_resolution.py`
 re-decides every identity in the graph and deletes the edges a superseded rule
 produced.
@@ -150,9 +152,31 @@ zero collisions. 297 tests pass, 27 of them against the live engine.
 
 ## Team members and contributions
 
-Jeswin Lobo — sole participant. Architecture, implementation, evaluation, and
-write-up. Built with AI coding assistance (Claude), which the rules permit and
-which is credited here and in the commit history.
+A team of three. Contributions are described from the commit history, which is
+public and can be read directly.
+
+**Jeswin Lobo** ([@jeswinlobo](https://github.com/jeswinlobo)) — 44 commits,
++23,681 / −2,804 lines. Architecture and the `tracegraph/` implementation the
+submission runs on: entity resolution and its graph tiers, conflict detection
+and trust decomposition, the deterministic answer controller, on-demand
+ingestion, the ticket traversal, near-duplicate detection, the evaluation
+harnesses, `docs/engine-notes.md`, and the write-up.
+
+**Sheldon Menezes** — 7 commits, +3,712 / −232 lines, 16 August. Built the first
+working vertical slice under `app/`: the HydraDB Bolt client and setup scaffold,
+the ingestion loader and source parsers, the initial answer-synthesis path, the
+FastAPI surface, the first Ask & Inspect page, `docker-compose.yml`, and the
+first engine contract test.
+
+**Stalin Prevan Crasta** — 1 commit, +616 / −123 lines, 17 August. Answer path,
+corpus access and configuration, and the first benchmark runner (`app/benchmark.py`).
+
+The `app/` layout Sheldon and Stalin built was later rewritten into
+`tracegraph/`; that first slice is what established the working HydraDB
+round-trip the current system is built on, and the history shows both.
+
+Built with AI coding assistance (Claude), which the rules permit and which is
+credited here and in the commit history.
 
 ## Links
 
@@ -182,7 +206,7 @@ Every item is a listed disqualification reason. Tick them off in order.
 - [ ] **Repository is public** — currently private; flip before submitting
 - [ ] Demo video, 3 minutes or less, link opens in an incognito window
 - [ ] Submission form complete
-- [ ] Team members listed correctly
+- [x] Team members listed correctly — three, above, with contributions
 - [ ] Submitted before 11:59 PM PT on 20 August
 
 ## Video plan — 2:55, in the order the guide mandates

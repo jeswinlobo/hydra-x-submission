@@ -68,6 +68,26 @@ _NOT_A_TICKET_PREFIX = frozenset({
 _YEAR_LIKE = range(1990, 2101)
 
 
+def _is_short_form(token: str, name: str) -> bool:
+    """Whether `token` could plausibly be a shortening of `name`.
+
+    A real short form keeps its letters in order: `sam` sits inside `soham`,
+    `serg` inside `sergio`, `liz` inside `elizabeth`. `ben` does not sit inside
+    `barbara` — there is no `e` — so the subsequence test rejects exactly the
+    case a shared initial alone would wave through.
+
+    Checked against each token of the name separately, because `Entity.name` is
+    often a bare address (`sergio.alvarez@redwood.ai`) rather than a person's
+    written name, and the short form belongs to one part of it.
+    """
+    folded = token.casefold()
+    for part in name_tokens(name) or {name.casefold()}:
+        it = iter(part)
+        if all(ch in it for ch in folded):
+            return True
+    return False
+
+
 def _ticket_keys(references) -> list[str]:
     """The ticket keys in `references` that are plausibly real tickets.
 
@@ -537,19 +557,22 @@ class OnDemandIngestor:
         if len(token) < self._MIN_SHORT_FORM:
             return None
 
-        proposed = evidence.propose_from_structure(
-            token[0].upper(), doc_id, channel_id)
-        scoring = [p for p in proposed if (p[2] or p[3])]
-        if not scoring:
+        proposed = evidence.propose_from_structure(token[0], doc_id, channel_id)
+
+        # A shared initial is not enough on its own. `Ben` in a document whose
+        # only B-person is `Barbara Liu` would otherwise resolve to Barbara at
+        # 0.70, which is a false merge with a confident-sounding reason attached.
+        # A real short form is a *subsequence* of the name it shortens — `sam` of
+        # `soham`, `serg` of `sergio` — and `ben` is not a subsequence of
+        # `barbara`, because there is no `e`. That is a rule which can be stated
+        # and checked rather than a similarity score to tune.
+        plausible = [p for p in proposed if _is_short_form(token, p[1])]
+        if not plausible:
             return None
-        if self._PROPOSAL_REQUIRES_SOLE_WINNER and len(scoring) > 1:
+        if self._PROPOSAL_REQUIRES_SOLE_WINNER and len(plausible) > 1:
             return None
 
-        key, name, co, part = scoring[0]
-        entity_id = entity_ids.get(key)
-        if entity_id is None:
-            person = resolver.people.get(key)
-            entity_id = node_identity(ENTITY, key).id if person else None
+        key, name, co, part, entity_id = plausible[0]
         if entity_id is None:
             return None
 
@@ -562,7 +585,7 @@ class OnDemandIngestor:
             f"no candidate shares this surface's tokens, so the graph proposed "
             f"{name} from structure: {co} co-mention(s) in this document and "
             f"{part} shared channel(s), sole scoring candidate sharing the "
-            f"initial '{token[0].upper()}'"
+            f"initial '{token[0]}'"
         )
         confidence = CONFIDENCE[METHOD_GRAPH_PROPOSED]
         return entity_id, reason, confidence
