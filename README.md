@@ -635,9 +635,10 @@ capped at 6 GB in `docker-compose.yml`, so lower that first on a smaller machine
 git clone https://github.com/jeswinlobo/hydra-x-submission && cd hydra-x-submission
 cp .env.example .env          # add ANTHROPIC_API_KEY
 # The corpus, ~1.4 GB and Git LFS. Use the CLI rather than `git clone`: without
-# `git lfs` installed a clone leaves a 130-byte pointer file at the right path,
-# which passes bootstrap's existence check and then fails inside pyarrow minutes
-# later. MIT licensed, not gated.
+# `git lfs` installed a clone leaves a 130-byte pointer file at the right path.
+# bootstrap.sh checks the parquet magic bytes rather than mere existence, so it
+# now names that specific failure instead of dying inside pyarrow minutes later.
+# MIT licensed, not gated.
 # `--with` pulls the CLI for this one command; it is not a project dependency.
 # The entrypoint is `hf`, not the older `huggingface-cli`, which is deprecated.
 uv run --with huggingface_hub hf download \

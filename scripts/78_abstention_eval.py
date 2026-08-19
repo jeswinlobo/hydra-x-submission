@@ -217,6 +217,20 @@ def main() -> int:
     args = ap.parse_args()
 
     arms = [a.strip() for a in args.arms.split(",") if a.strip()]
+
+    # Captured before the run, not after. A pass over forty questions takes long
+    # enough that the tree can move underneath it, and stamping the commit at
+    # the end labels results produced by older code with newer code's hash —
+    # worse than no provenance, because it reads as a measurement of something
+    # it did not measure. Whether the tree was dirty is recorded too: a clean
+    # hash on a modified tree is the same lie in smaller print.
+    commit = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True,
+                            text=True).stdout.strip() or None
+    dirty = bool(subprocess.run(["git", "status", "--porcelain"],
+                                capture_output=True, text=True).stdout.strip())
+    if len(arms) < 2:
+        print("NOTE: fewer than two arms - this is a smoke run, not a "
+              "graph-vs-no-graph comparison, and is recorded as such.\n")
     unanswerable, answerable = load_questions(args.limit)
     print(f"{len(unanswerable)} unanswerable ({UNANSWERABLE_TYPE}), "
           f"{len(answerable)} answerable ({ANSWERABLE_TYPE}); arms: {', '.join(arms)}\n")
@@ -257,11 +271,13 @@ def main() -> int:
             else None,
         }
 
-    commit = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True,
-                            text=True).stdout.strip() or None
     record = {
         "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "commit": commit,
+        "tree_dirty_at_start": dirty,
+        # A single arm cannot answer "does the graph help"; saying so in the
+        # artifact stops it being quoted as though it had.
+        "comparison": len(arms) >= 2,
         "synthesis_model": config.SYNTHESIS_MODEL,
         "extraction_model": config.EXTRACTION_MODEL,
         "run_id": run_id,

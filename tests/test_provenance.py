@@ -170,3 +170,61 @@ class TestTicketTraversalReachesSynthesis:
         source = inspect.getsource(mod.AnswerController.answer)
         after = source[source.index("for row in (self._related"):]
         assert "quote not in body" in after
+
+
+class TestTheGraphTheJudgeSeesIsNotTruncated:
+    """Calls the builder, because the previous test did not.
+
+    An earlier version of this file asserted on a list it had reconstructed
+    itself, which proves nothing about the function that draws the panel — and
+    it missed a surviving `used[:24]` at exactly that boundary. The controller
+    reported 38 claims while the rendered subgraph drew 24 and was still called
+    the evidence path. A test that does not call the thing it is about will
+    agree with any implementation.
+    """
+
+    @staticmethod
+    def _claims(n):
+        return [{"dsid": "dsid_a", "subject": f"subject {i}", "predicate": "p",
+                 "object": f"o{i}", "confidence": 0.9, "quote": f"quote {i}",
+                 "eid": f"e{i}", "claim_id": 5000 + i, "span_id": 9000 + i}
+                for i in range(n)]
+
+    def test_thirty_eight_claims_draw_thirty_eight_of_each(self):
+        from tracegraph.api import _evidence_graph_from_claims
+        graph = _evidence_graph_from_claims(["dsid_a"], self._claims(38))
+        kinds = [n["kind"] for n in graph["nodes"]]
+        assert kinds.count("Claim") == 38
+        assert kinds.count("EvidenceSpan") == 38
+        assert kinds.count("Document") == 1
+        # One ASSERTS and one SUPPORTED_BY per claim.
+        assert len(graph["edges"]) == 76
+
+    def test_nodes_carry_persisted_graph_ids(self):
+        """`claim:e6` cannot be looked up; `claim:5006` can."""
+        from tracegraph.api import _evidence_graph_from_claims
+        graph = _evidence_graph_from_claims(["dsid_a"], self._claims(3))
+        ids = {n["id"] for n in graph["nodes"]}
+        assert "claim:5000" in ids and "span:9000" in ids
+        assert not any(i.startswith("claim:e") for i in ids)
+
+    def test_a_claim_from_an_uncited_document_is_not_drawn(self):
+        from tracegraph.api import _evidence_graph_from_claims
+        claims = self._claims(2)
+        claims.append({**self._claims(1)[0], "dsid": "dsid_elsewhere",
+                       "eid": "e99", "claim_id": 7777, "span_id": 8888})
+        graph = _evidence_graph_from_claims(["dsid_a"], claims)
+        assert "claim:7777" not in {n["id"] for n in graph["nodes"]}
+
+    def test_a_claim_without_persisted_ids_still_renders(self):
+        """Claims written before the ids were carried must not vanish."""
+        from tracegraph.api import _evidence_graph_from_claims
+        claim = {**self._claims(1)[0]}
+        claim.pop("claim_id"); claim.pop("span_id")
+        graph = _evidence_graph_from_claims(["dsid_a"], [claim])
+        assert sum(1 for n in graph["nodes"] if n["kind"] == "Claim") == 1
+
+    def test_no_claims_yields_documents_only(self):
+        from tracegraph.api import _evidence_graph_from_claims
+        graph = _evidence_graph_from_claims(["dsid_a"], [])
+        assert graph["edges"] == []

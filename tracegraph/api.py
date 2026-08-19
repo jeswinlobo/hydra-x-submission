@@ -420,7 +420,12 @@ def _evidence_graph_from_claims(dsids: list[str], used: list[dict]) -> dict:
     for dsid in dsids:
         nodes[f"doc:{dsid}"] = {"id": f"doc:{dsid}", "kind": "Document",
                                 "label": dsid[:18]}
-    for claim in used[:24]:
+    # Uncapped, deliberately. A `[:24]` here meant the controller could report
+    # 38 claims while the panel a judge actually looks at drew 24 of them and
+    # was still described as the evidence path. The bound that matters is the
+    # one synthesis already applied by naming the spans it used; re-bounding
+    # afterwards silently contradicts the claim this panel exists to support.
+    for claim in used:
         dsid = claim.get("dsid")
         if not dsid or f"doc:{dsid}" not in nodes:
             continue

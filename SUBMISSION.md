@@ -153,28 +153,27 @@ zero collisions. 322 tests pass, 27 of them against the live engine.
 ## Team members and contributions
 
 A team of three. One thing to state plainly, because the repository does not
-show it on its own: **the branch being submitted carries only Jeswin's 49
-commits.** Sheldon's and Stalin's work is in the project's earlier history, on
+show it on its own: **every commit on the branch being submitted is Jeswin's.** Sheldon's and Stalin's work is in the project's earlier history, on
 the original `hydra-x` repository, and was rewritten rather than carried
 forward — the `app/` layout they built became `tracegraph/`. Their contributions
 below are real and are described from that history; they are simply not visible
 in `git log` here, and saying so is more useful than letting a judge discover
 the gap.
 
-**Jeswin Lobo** ([@jeswinlobo](https://github.com/jeswinlobo)) — 49 commits,
-+23,681 / −2,804 lines. Architecture and the `tracegraph/` implementation the
+**Jeswin Lobo** ([@jeswinlobo](https://github.com/jeswinlobo)) — every commit on
+this branch; run `git shortlog -sne` to see the split. Architecture and the `tracegraph/` implementation the
 submission runs on: entity resolution and its graph tiers, conflict detection
 and trust decomposition, the deterministic answer controller, on-demand
 ingestion, the ticket traversal, near-duplicate detection, the evaluation
 harnesses, `docs/engine-notes.md`, and the write-up.
 
-**Sheldon Menezes** — 7 commits, +3,712 / −232 lines, 16 August. Built the first
+**Sheldon Menezes** — 16 August, in the earlier `hydra-x` history. Built the first
 working vertical slice under `app/`: the HydraDB Bolt client and setup scaffold,
 the ingestion loader and source parsers, the initial answer-synthesis path, the
 FastAPI surface, the first Ask & Inspect page, `docker-compose.yml`, and the
 first engine contract test.
 
-**Stalin Prevan Crasta** — 1 commit, +616 / −123 lines, 17 August. Answer path,
+**Stalin Prevan Crasta** — 17 August, in the earlier `hydra-x` history. Answer path,
 corpus access and configuration, and the first benchmark runner (`app/benchmark.py`).
 
 That first slice is what established the working HydraDB round-trip everything
