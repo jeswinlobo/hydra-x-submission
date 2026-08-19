@@ -142,6 +142,57 @@ writes down why it chose, on the 17.1% of mentions no string rule could resolve.
 It is not the two-way discrimination the query shape implies, and the earlier
 draft of this section said it was.
 
+**The graph proposes an identity, not just a ranking — and this is the case the
+brief leads with.** Track 01 opens on one example: *"deciding that `Sam`,
+`@soham` and `S. Ratnaparkhi` are one person."* Two of those three resolve by
+token overlap. The first cannot, and the reason is worth being precise about:
+`{sam}` is not a subset of `{soham, ratnaparkhi}`. There is no shared token, no
+small edit distance, and nothing an embedding of two four-letter strings
+recovers, because **the relationship is not in the text at all.**
+
+It is in the graph. Somebody called `sam` speaks in a channel; Soham
+Ratnaparkhi participates in that channel and is already resolved elsewhere in
+this document. So when no string rule offers a candidate, the candidate set
+comes from HydraDB — every person resolved inside this document or
+participating in its channel — and the same co-occurrence and participation
+traversals decide between them:
+
+```cypher
+MATCH (e:Entity)<-[:RESOLVES_TO]-(m:Mention)-[:MENTIONED_IN]->(d:Document {id: $did})
+WHERE e.run_id = $r AND e.name STARTS WITH $initial
+RETURN DISTINCT e.id, e.key, e.name
+```
+
+This is the tier that answers *"a use case that is hard to pull off with
+traditional vector or relational approaches"* literally rather than
+rhetorically. A vector index cannot reach `sam → Soham`; a SQL join cannot
+either. Only the structure can.
+
+It is also the weakest positive claim the resolver makes, and a wrong answer
+here is a false merge — the failure the whole module exists to refuse. Three
+guards, and `tests/test_graph_proposed.py` is nineteen cases of which most
+assert a refusal:
+
+* a single token of at least three characters, so it fires on short forms
+  rather than on prose;
+* a shared first initial. Every real short form has one, and without it the
+  tier degrades to "one person is nearby, so the handle must be them";
+* **a sole scoring candidate.** Two candidates with evidence means the graph
+  cannot separate them, and the mention stays unresolved with that recorded.
+
+Both halves are observable on the live graph. On one document the initial `S`
+proposes Sean McCoy alone and resolves; on another, `M` proposes both Marcus
+Lin and Markus Klein and the tier abstains. 27–467 ms. Confidence is capped at
+0.70, below `graph_evidence`'s 0.80, because this tier has no lexical
+corroboration beyond the initial and its ceiling should say so.
+
+Why this existed as a gap until late: resolution returned `UNRESOLVED` the
+moment `candidates_for()` came back empty, which is *before* the graph tier
+ran. So the graph could only ever re-rank candidates a string rule had already
+vouched for. That is also why every one of the 1,074 `graph_evidence` decisions
+had a runner-up scoring zero — the tier was never handed a hard case, because
+the hard cases were filtered out above it.
+
 Every count here is generated, not typed. The graph grows whenever anyone asks a
 question, so figures written into prose drift within hours; `scripts/35_verify_gate.py`
 rewrites the snapshot each run and this section quotes it. If a number here
@@ -563,7 +614,7 @@ round-trips a real query first, because a port is not proof.
 ## Verifying the claims above
 
 ```bash
-uv run pytest                             # 278 tests, 27 against the live engine
+uv run pytest                             # 297 tests, 27 against the live engine
 uv run python scripts/35_verify_gate.py   # 14 checks, read back from the graph
 uv run python scripts/36_repair_graph.py  # audit identities and undecided mentions
 uv run python scripts/37_rebuild_resolution.py  # re-decide every identity, report drift

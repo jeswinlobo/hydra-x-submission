@@ -73,13 +73,24 @@ graph first — who speaks in which channel, which mention sits in which documen
 — and ambiguous surfaces are then scored by traversals over that structure:
 co-occurrence in the same document at two hops, participation in the same
 channel at one. At the snapshot in `artifacts/graph_snapshot.json` (read epoch
-18642, 1245 documents) this decided
-**1,066 mention occurrences across
+21628, 1421 documents) this decided
+**1,074 mention occurrences across
 38 distinct ambiguous surfaces**. Where the graph
 does not separate candidates the mention stays unresolved with its candidate set
-recorded as `CANDIDATE_FOR` edges — 1,751
-mentions across 73 surfaces keep a competing
+recorded as `CANDIDATE_FOR` edges — 2,000
+mentions across 78 surfaces keep a competing
 set rather than being guessed at.
+
+**The graph proposes identities, not just rankings.** The brief's own example
+is `Sam` / `@soham` / `S. Ratnaparkhi`. Two resolve by token overlap; `sam`
+cannot, because `{sam}` shares no token with `{soham, ratnaparkhi}` — no edit
+distance, no embedding of two short strings recovers it, since the relationship
+is structural rather than lexical. When no string rule offers a candidate,
+HydraDB supplies one: everybody resolved inside this document or participating
+in its channel, scored by the same traversals. It fires only on a sole scoring
+candidate sharing the initial, and abstains when two candidates both have
+evidence — verified live on the graph, both directions. This is the clearest
+case in the project of a question a vector index cannot answer at all.
 
 Merging is equally a refusal. Two people sharing a full name are folded together
 only when they also share an organisational root, so Grace O'Connor's fourteen
@@ -135,7 +146,7 @@ batch, **62 (12%) cited evidence not appearing verbatim in the source and were
 rejected**.
 
 Ingestion runs at ~19,000 nodes/second; registering 511,958 document ids produced
-zero collisions. 278 tests pass, 27 of them against the live engine.
+zero collisions. 297 tests pass, 27 of them against the live engine.
 
 ## Team members and contributions
 
