@@ -602,8 +602,11 @@ cp .env.example .env          # add ANTHROPIC_API_KEY
 # `git lfs` installed a clone leaves a 130-byte pointer file at the right path,
 # which passes bootstrap's existence check and then fails inside pyarrow minutes
 # later. MIT licensed, not gated.
-uv run huggingface-cli download onyx-dot-app/EnterpriseRAG-Bench \
-    --repo-type dataset --local-dir dataset/EnterpriseRAG-Bench
+# `--with` pulls the CLI for this one command; it is not a project dependency.
+# The entrypoint is `hf`, not the older `huggingface-cli`, which is deprecated.
+uv run --with huggingface_hub hf download \
+    onyx-dot-app/EnterpriseRAG-Bench --repo-type dataset \
+    --local-dir dataset/EnterpriseRAG-Bench
 #   -> dataset/EnterpriseRAG-Bench/data/{documents,questions}/test.parquet
 
 ./scripts/bootstrap.sh        # everything, in order, ~10 minutes
@@ -686,4 +689,4 @@ Full third-party notices in `NOTICE.md`.
 
 Built for Hack Hydra 2026 by [Jeswin Lobo](https://github.com/jeswinlobo),
 Sheldon Menezes and Stalin Prevan Crasta. Contributions are set out in
-`SUBMISSION.md` and visible in the commit history.
+`SUBMISSION.md`, including which of them predate this branch's history.

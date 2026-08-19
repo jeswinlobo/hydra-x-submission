@@ -33,22 +33,27 @@ grep -q '^ANTHROPIC_API_KEY=.\+' .env || \
 CORPUS="dataset/EnterpriseRAG-Bench/data/documents/test.parquet"
 QUESTIONS="dataset/EnterpriseRAG-Bench/data/questions/test.parquet"
 [[ -f "$CORPUS" ]] || fail "corpus not found at $CORPUS
-  uv run huggingface-cli download onyx-dot-app/EnterpriseRAG-Bench \\
+  uv run --with huggingface_hub hf download onyx-dot-app/EnterpriseRAG-Bench \\
       --repo-type dataset --local-dir dataset/EnterpriseRAG-Bench"
 [[ -f "$QUESTIONS" ]] || fail "questions not found at $QUESTIONS (needed by scripts/75_retrieval_eval.py)"
 
 # Existence is not enough, because the failure it misses is the likely one. The
 # corpus is Git LFS, so cloning the dataset repo without `git lfs` installed
-# leaves a ~130-byte pointer file at exactly the right path: the check above
-# passes, and the run then dies inside pyarrow several minutes later with an
-# error about the parquet magic bytes. Check the size instead — the real file is
-# ~1.4 GB, and anything under a megabyte is a pointer, not a corpus.
+# leaves a ~130-byte pointer file at exactly the right path: an existence check
+# passes and the run then dies inside pyarrow with an error about magic bytes.
+#
+# Check the magic bytes rather than the size. A first attempt used a 1 MB floor
+# and rejected the genuine questions file, which is only 408 KB — the size of a
+# valid parquet says nothing, while every parquet begins with "PAR1" and no LFS
+# pointer does.
 for f in "$CORPUS" "$QUESTIONS"; do
-  size=$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f" 2>/dev/null || echo 0)
-  [[ "$size" -gt 1000000 ]] || fail "$f is $size bytes — that is a Git LFS pointer, not the file.
-  Install git-lfs and re-pull, or download with:
-      uv run huggingface-cli download onyx-dot-app/EnterpriseRAG-Bench \\
-          --repo-type dataset --local-dir dataset/EnterpriseRAG-Bench"
+  magic=$(head -c 4 "$f" 2>/dev/null || true)
+  [[ "$magic" == "PAR1" ]] || fail "$f is not a parquet file (starts with '$magic').
+  A Git LFS pointer lands at the right path when git-lfs is not installed.
+  Install git-lfs and re-pull, or download the corpus with:
+      uv run --with huggingface_hub hf download \\
+          onyx-dot-app/EnterpriseRAG-Bench --repo-type dataset \\
+          --local-dir dataset/EnterpriseRAG-Bench"
 done
 
 # ~7GB: the 1.4GB corpus, a 1.4GB re-chunked copy, and a 2.5GB lexical index.

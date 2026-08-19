@@ -152,8 +152,14 @@ zero collisions. 305 tests pass, 27 of them against the live engine.
 
 ## Team members and contributions
 
-A team of three. Contributions are described from the commit history, which is
-public and can be read directly.
+A team of three. One thing to state plainly, because the repository does not
+show it on its own: **the branch being submitted carries only Jeswin's 46
+commits.** Sheldon's and Stalin's work is in the project's earlier history, on
+the original `hydra-x` repository, and was rewritten rather than carried
+forward — the `app/` layout they built became `tracegraph/`. Their contributions
+below are real and are described from that history; they are simply not visible
+in `git log` here, and saying so is more useful than letting a judge discover
+the gap.
 
 **Jeswin Lobo** ([@jeswinlobo](https://github.com/jeswinlobo)) — 44 commits,
 +23,681 / −2,804 lines. Architecture and the `tracegraph/` implementation the
@@ -171,9 +177,9 @@ first engine contract test.
 **Stalin Prevan Crasta** — 1 commit, +616 / −123 lines, 17 August. Answer path,
 corpus access and configuration, and the first benchmark runner (`app/benchmark.py`).
 
-The `app/` layout Sheldon and Stalin built was later rewritten into
-`tracegraph/`; that first slice is what established the working HydraDB
-round-trip the current system is built on, and the history shows both.
+That first slice is what established the working HydraDB round-trip everything
+after it was built on, which is why it is credited even though none of its code
+survives in the submitted tree.
 
 Built with AI coding assistance (Claude), which the rules permit and which is
 credited here and in the commit history.
