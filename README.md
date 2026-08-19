@@ -660,6 +660,7 @@ assumption fails loudly instead of corrupting the graph quietly.
 | `PLAN.md` | The execution plan this was built against |
 | `docs/engine-notes.md` | Verified HydraDB behaviour and its constraints |
 | `docs/negative-results.md` | Features built, measured, and removed, with the measurements |
+| `docs/upstream-issues.md` | Two engine findings written up for the HydraDB tracker |
 | `docs/corpus-notes.md` | What the corpus actually contains |
 | `docs/source-notes.md` | Document shapes for all nine sources |
 | `docs/refs.lock.md` | Pinned upstream commits and firewalled material |
