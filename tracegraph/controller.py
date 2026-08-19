@@ -403,12 +403,14 @@ class AnswerController:
                     if body is None or quote not in body:
                         rejected_spans.append({"dsid": dsid, "quote": quote[:120]})
                         continue
+                eid = f"e{len(claims)}"
                 claims.append({
                     "dsid": dsid, "subject": row["subject"],
                     "predicate": row["predicate"], "object": row["object"],
-                    "confidence": row["confidence"], "quote": quote,
+                    "confidence": row["confidence"], "quote": quote, "eid": eid,
                 })
-                evidence.append(Evidence(dsid=dsid, text=quote, title=row["title"]))
+                evidence.append(Evidence(dsid=dsid, text=quote,
+                                         title=row["title"], eid=eid))
 
         # Documents the ticket graph reaches that retrieval did not. Recorded on
         # the result whether or not the answer ends up leaning on them, because
@@ -448,7 +450,24 @@ class AnswerController:
                 "no returned citation survived validation",
                 started, claims, rejected_spans, rejected=rejected)
 
-        used = [c for c in claims if c["dsid"] in cited]
+        # Which claims the answer actually rests on.
+        #
+        # This used to be every claim in every cited document, which is not the
+        # same thing and was visibly wrong: an answer about one person's role
+        # displayed a different person's interview claims, because they happened
+        # to share a document. Synthesis now names the spans it used, and only
+        # those are reported as support.
+        #
+        # Two guards. A span is only accepted if its document also survived
+        # citation validation, so naming a span cannot smuggle in an unvalidated
+        # document. And if the model names nothing usable — an older model, or a
+        # refusal to narrow — this falls back to the document-level set rather
+        # than claiming the answer rested on no evidence at all.
+        by_eid = {c["eid"]: c for c in claims}
+        named = [by_eid[e] for e in result.evidence_used
+                 if e in by_eid and by_eid[e]["dsid"] in cited]
+        used = named or [c for c in claims if c["dsid"] in cited]
+        self._narrowed = bool(named)
         confidence = round(
             min(0.95, 0.4 + 0.1 * len(cited) + 0.05 * min(len(used), 6)), 3)
 

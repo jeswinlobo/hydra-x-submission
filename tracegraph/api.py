@@ -30,7 +30,7 @@ WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 app = FastAPI(title="TraceGraph", version="0.1.0")
 
-_state: dict = {"client": None, "run_id": None, "bodies": {}, "ingestor": None}
+_state: dict = {"client": None, "run_id": None, "bodies": {}, "ingestor": None, "conflicts": None}
 
 # These endpoints are synchronous, so FastAPI runs each request on a worker
 # thread out of a pool. Two things follow, and both used to be wrong here.
@@ -211,20 +211,33 @@ def ask(request: AskRequest) -> dict:
     # Only a supported answer gets an evidence graph. Falling back to whatever
     # was retrieved drew a subgraph under an abstention, which reads as evidence
     # for an answer the system just declined to give.
-    payload["evidence_graph"] = _evidence_graph(result.document_ids)
+    payload["evidence_graph"] = _evidence_graph(result.document_ids,
+                                                result.claims)
     payload["examined_documents"] = sorted({c["dsid"] for c in result.examined})
     return payload
 
 
-def _evidence_graph(dsids: list[str]) -> dict:
+def _evidence_graph(dsids: list[str], used: list[dict] | None = None) -> dict:
     """The focused subgraph behind an answer — never the whole graph.
 
     Bounded to the cited documents and one hop of their claims and spans, which
     is what makes it readable. PLAN.md is explicit that an uncontrolled hairball
     is not evidence.
+
+    Drawn from the claims the answer actually used, not from a `LIMIT 6` over
+    each cited document. Those are different sets and the difference was
+    visible: an answer about one person's role rendered a different person's
+    interview claims, because they shared a document and happened to come back
+    first. A subgraph that shows evidence the answer did not use is not a
+    smaller version of the truth, it is a wrong picture of it.
+
+    Falls back to the document-level walk only when no claim survived — an older
+    model that names no spans still gets a subgraph rather than an empty panel.
     """
     if not dsids:
         return {"nodes": [], "edges": []}
+    if used:
+        return _evidence_graph_from_claims(dsids, used)
     c = client()
     nodes: dict[str, dict] = {}
     edges: list[dict] = []
@@ -360,13 +373,26 @@ def conflicts(limit: int = 8) -> dict:
     than no panel.
     """
     c = client()
-    records = [ClaimRecord(**row) for row in load_claims(c, run_id())]
-    timestamps = {r.dsid: r.timestamp for r in records if r.timestamp}
-    order = sorted(timestamps, key=lambda d: timestamps[d])
-    found, stats = detect_conflicts(
-        records, document_order=order,
-        subject_identity=load_subject_identity(c, run_id()))
-    return {"conflicts": [c.as_dict() for c in found[:limit]], "stats": stats}
+    epoch = c.http_query("MATCH (cl:Claim) RETURN count(*) AS n").read_epoch
+    cached = _state.get("conflicts")
+    if cached is not None and cached["epoch"] == epoch:
+        found, stats = cached["found"], cached["stats"]
+    else:
+        # Recomputed only when the graph has moved. This walks every claim,
+        # aligns predicates, groups by resolved identity and scores four trust
+        # components per version — 74 seconds on the current graph, which is not
+        # a panel, it is a wait. The read epoch is the engine's own consistency
+        # position, so it changes exactly when the answer could change and never
+        # otherwise: a cache keyed on it cannot serve a stale dispute.
+        records = [ClaimRecord(**row) for row in load_claims(c, run_id())]
+        timestamps = {r.dsid: r.timestamp for r in records if r.timestamp}
+        order = sorted(timestamps, key=lambda d: timestamps[d])
+        found, stats = detect_conflicts(
+            records, document_order=order,
+            subject_identity=load_subject_identity(c, run_id()))
+        _state["conflicts"] = {"epoch": epoch, "found": found, "stats": stats}
+    return {"conflicts": [c.as_dict() for c in found[:limit]],
+            "stats": stats, "read_epoch": epoch}
 
 
 @app.get("/")
@@ -378,3 +404,34 @@ def index() -> FileResponse:
 def shutdown() -> None:
     if _state["client"] is not None:
         _state["client"].close()
+
+
+def _evidence_graph_from_claims(dsids: list[str], used: list[dict]) -> dict:
+    """The subgraph of exactly the claims the answer rested on.
+
+    Built from the controller's own `claims` list rather than re-queried, so the
+    panel and the answer cannot disagree — they are the same objects. Node ids
+    are derived from the claim content because the controller reports claims by
+    value, not by graph id; that is enough for a rendering key and it keeps this
+    free of a second round trip.
+    """
+    nodes: dict[str, dict] = {}
+    edges: list[dict] = []
+    for dsid in dsids:
+        nodes[f"doc:{dsid}"] = {"id": f"doc:{dsid}", "kind": "Document",
+                                "label": dsid[:18]}
+    for claim in used[:24]:
+        dsid = claim.get("dsid")
+        if not dsid or f"doc:{dsid}" not in nodes:
+            continue
+        key = claim.get("eid") or f"{claim['subject']}|{claim['predicate']}"
+        cid, sid = f"claim:{key}", f"span:{key}"
+        nodes[cid] = {
+            "id": cid, "kind": "Claim",
+            "label": f"{str(claim['subject'])[:22]} {str(claim['predicate'])[:14]}",
+        }
+        nodes[sid] = {"id": sid, "kind": "EvidenceSpan",
+                      "label": (claim.get("quote") or "")[:40]}
+        edges.append({"source": f"doc:{dsid}", "target": cid, "type": "ASSERTS"})
+        edges.append({"source": cid, "target": sid, "type": "SUPPORTED_BY"})
+    return {"nodes": list(nodes.values()), "edges": edges}

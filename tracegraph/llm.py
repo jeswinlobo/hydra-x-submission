@@ -171,6 +171,10 @@ Rules:
 - Use the evidence and nothing else. You have no other knowledge of this \
 organisation, its people, or its systems.
 - Cite the dsid of every passage your answer depends on.
+- In `evidence_used`, list the `id` of each individual passage the answer \
+actually rests on. Be strict: a passage that merely came from the same document \
+does not belong there. This is what the interface shows as the evidence behind \
+the answer, so a passage listed here and not used misrepresents the answer.
 - If the evidence does not support an answer, set sufficient to false, leave \
 the answer empty, and cite nothing. Abstaining is the correct outcome when the \
 passages fall short; a plausible answer that the passages do not state is not.
@@ -197,7 +201,9 @@ def _synthesis_user_message(question: str, evidence: Sequence["Evidence"]) -> st
     blocks = []
     for item in evidence:
         title = f' title="{item.title}"' if item.title else ""
-        blocks.append(f'<evidence dsid="{item.dsid}"{title}>\n{item.text}\n</evidence>')
+        handle = f' id="{item.eid}"' if item.eid else ""
+        blocks.append(
+            f'<evidence{handle} dsid="{item.dsid}"{title}>\n{item.text}\n</evidence>')
     return SYNTHESIS_USER_TEMPLATE.format(
         evidence="\n\n".join(blocks), question=question
     )
@@ -263,7 +269,8 @@ CLAIM_EXTRACTION_SCHEMA: dict[str, object] = {
 }
 
 
-def _synthesis_schema(dsids: Sequence[str]) -> dict[str, object]:
+def _synthesis_schema(dsids: Sequence[str],
+                      eids: Sequence[str] = ()) -> dict[str, object]:
     """Build the synthesis schema, pinning citations to the supplied dsids.
 
     The enum is the cheapest possible guard against a cited document that was
@@ -286,6 +293,13 @@ def _synthesis_schema(dsids: Sequence[str]) -> dict[str, object]:
                 "type": "array",
                 "description": "dsids of the passages the answer depends on.",
                 "items": {"type": "string", "enum": list(dsids)},
+            },
+            "evidence_used": {
+                "type": "array",
+                "description": ("ids of the individual passages the answer rests "
+                                "on. Not every passage from a cited document."),
+                "items": {"type": "string", "enum": list(eids)} if eids
+                         else {"type": "string"},
             },
         },
     }
@@ -650,6 +664,11 @@ class Evidence:
     dsid: str
     text: str
     title: str | None = None
+    # A per-request handle the model cites to say *which span* it used. Without
+    # it synthesis can only name documents, and the caller has to treat every
+    # claim in a cited document as used — which is how an answer about one
+    # person ended up displaying another person's interview claims.
+    eid: str = ""
 
 
 @dataclass
@@ -658,6 +677,10 @@ class SynthesisResult:
     sufficient: bool
     citations: list[str]
     manifest: ExtractionManifest
+    # Ids of the spans the model says it actually used. Empty when the model
+    # returns none, which the caller treats as "cannot narrow" rather than
+    # "used nothing".
+    evidence_used: list[str] = field(default_factory=list)
 
 
 def synthesise_answer(
@@ -680,6 +703,7 @@ def synthesise_answer(
         )
 
     dsids = [item.dsid for item in evidence]
+    eids = [item.eid for item in evidence if item.eid]
     message = _resolve_client(client).messages.create(
         model=model,
         max_tokens=max_tokens,
@@ -688,7 +712,8 @@ def synthesise_answer(
             {"role": "user", "content": _synthesis_user_message(question, evidence)}
         ],
         output_config={
-            "format": {"type": "json_schema", "schema": _synthesis_schema(dsids)}
+            "format": {"type": "json_schema",
+                       "schema": _synthesis_schema(dsids, eids)}
         },
         # Sonnet 5 runs adaptive thinking by default; this call is short and on
         # the latency-sensitive answer path.
@@ -710,6 +735,8 @@ def synthesise_answer(
         sufficient=bool(payload.get("sufficient", False)),
         citations=citations,
         manifest=manifest,
+        evidence_used=[str(e) for e in payload.get("evidence_used", [])
+                       if str(e) in set(eids)],
     )
 
 

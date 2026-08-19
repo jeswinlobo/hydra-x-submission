@@ -57,6 +57,14 @@ The contested panel is not decoration — the verdict came from walking
 `CONFLICTS_WITH` one hop out from the claims the answer actually used, so an
 answer resting on a disputed fact cannot come back singular and confident.
 
+**"The claims the answer actually used" is now literally true**, which it was
+not when that screenshot was taken. Synthesis returns the ids of the individual
+spans it relied on, not just the documents, and the supporting-claims list and
+the evidence subgraph are both derived from those ids. Before, every claim in a
+cited document counted as used — so an answer about one person's role rendered a
+different person's interview claims, because they shared a document. The two
+sets are now the same objects rather than two queries that happened to agree.
+
 Ask something the corpus does not contain and it abstains — no citations, no
 claims, no guess.
 
