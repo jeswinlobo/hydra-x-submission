@@ -191,16 +191,34 @@ def _directness(record: ClaimRecord) -> float:
     return 0.7
 
 
-def _corroboration(version: Version, total_documents: int) -> float:
+def _corroboration(
+    version: Version,
+    total_documents: int,
+    near_duplicates: Mapping[str, str] | None = None,
+) -> float:
     """Independent documents asserting this value, discounted for duplication.
 
-    Copies of one another are not independent evidence. Identical quotes are
-    counted once, which is the cheap half of PLAN.md's duplicate discounting;
-    near-duplicate detection belongs with the DERIVED_FROM edges and is not
-    done here.
+    Copies of one another are not independent evidence, and this is where that
+    principle earns its keep: corroboration is one of the four signals deciding
+    which of two contradictory statements wins, so a document counted twice
+    inflates whichever version happened to be duplicated.
+
+    Two discounts, cheapest first. Identical quote strings collapse to one —
+    the same sentence extracted from two documents is one observation. Then
+    `near_duplicates` maps each dsid to a canonical representative of its
+    near-duplicate cluster (see `neardup.py`), so two documents that are edited
+    copies of one another count once even when their extracted quotes differ in
+    wording. Measured on the ingested corpus, that second discount catches a
+    class the first cannot: two Slack threads with **distinct doc_ids and
+    byte-identical bodies**, which the ingest-time doc_id dedup does not see at
+    all because it compares ids rather than content.
     """
+    if near_duplicates:
+        canonical = {near_duplicates.get(d, d) for d in version.dsids}
+        independent = max(len(canonical), 1)
+    else:
+        independent = max(len(version.dsids), 1)
     distinct_quotes = {c.quote.strip().casefold() for c in version.claims if c.quote}
-    independent = max(len(version.dsids), 1)
     if distinct_quotes and len(distinct_quotes) < independent:
         independent = len(distinct_quotes)
     return round(min(1.0, independent / max(total_documents, 2)), 3)
@@ -268,6 +286,7 @@ def detect_conflicts(
     *,
     document_order: Sequence[str] | None = None,
     subject_identity: Mapping[tuple[str, str], int] | None = None,
+    near_duplicates: Mapping[str, str] | None = None,
 ) -> tuple[list[Conflict], dict]:
     """Find contested facts and weigh their versions.
 
@@ -284,6 +303,12 @@ def detect_conflicts(
     graph. A subject with no resolved identity still groups by name, because a
     name is the only handle there is — but where the graph knows who somebody
     is, that is what decides whether two claims are even about the same subject.
+
+    `near_duplicates` maps a dsid to the canonical member of its near-duplicate
+    cluster, from `neardup.find_near_duplicates`. Supplying it stops an edited
+    copy of a document from counting as a second independent source — the brief
+    names near-duplicates as one of three noise types, and corroboration is the
+    one place in this module where they change an outcome rather than a count.
     """
     ordering = {dsid: i for i, dsid in enumerate(document_order or [])}
     identity = subject_identity or {}
@@ -342,7 +367,8 @@ def detect_conflicts(
                           for c in version.claims)
             version.trust = TrustBreakdown(
                 authority=authority,
-                corroboration=_corroboration(version, total_documents),
+                corroboration=_corroboration(
+                    version, total_documents, near_duplicates),
                 directness=round(directness, 3),
                 recency=recency,
                 mutable=predicate.mutable,
