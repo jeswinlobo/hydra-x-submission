@@ -9,33 +9,33 @@
   },
   "coverage": {
     "oracle_people": 167,
-    "graph_entities": 1257,
-    "graph_mentions": 10321,
+    "graph_entities": 1271,
+    "graph_mentions": 11065,
     "entities_matched_to_an_employee": 106,
     "entities_matching_two_or_more_employees": 0,
-    "entities_out_of_scope": 1151,
-    "mentions_with_strict_gold": 2968,
-    "mentions_with_strict_gold_pct": 28.756903400833252,
-    "mentions_with_lenient_gold": 4170,
-    "mentions_with_lenient_gold_pct": 40.4030617188257,
-    "mentions_excluded": 7353,
+    "entities_out_of_scope": 1165,
+    "mentions_with_strict_gold": 3007,
+    "mentions_with_strict_gold_pct": 27.17577948486218,
+    "mentions_with_lenient_gold": 4340,
+    "mentions_with_lenient_gold_pct": 39.22277451423407,
+    "mentions_excluded": 8058,
     "exclusion_reasons": {
-      "address_outside_directory": 1558,
-      "surface_ambiguous_or_absent": 3366,
-      "lenient_only_single_token": 1202,
-      "surface_names_nobody_in_directory": 1174,
+      "address_outside_directory": 1575,
+      "surface_ambiguous_or_absent": 3711,
+      "lenient_only_single_token": 1333,
+      "surface_names_nobody_in_directory": 1386,
       "internal_address_unmatched": 20,
       "external_namesake": 33
     },
     "gold_label_sources": {
-      "email_anchor": 2728,
-      "name_anchor_internal_address": 237,
+      "email_anchor": 2764,
+      "name_anchor_internal_address": 240,
       "name_anchor_no_address": 3
     },
     "employees_seen_via_entities": 53,
     "employees_seen_via_strict_mentions": 53,
-    "employees_seen_via_lenient_mentions": 83,
-    "bot_mentions_the_system_already_skips": 677,
+    "employees_seen_via_lenient_mentions": 85,
+    "bot_mentions_the_system_already_skips": 749,
     "directory_keys_dropped_as_ambiguous": [],
     "external_namesake_examples": [
       {
@@ -74,42 +74,42 @@
     "metrics": {
       "with_abstention_as_singletons": {
         "pairwise": {
-          "mentions": 2968,
-          "tp": 351309,
+          "mentions": 3007,
+          "tp": 356254,
           "fp": 0,
           "fn": 119136,
-          "tn": 3932583,
+          "tn": 4044131,
           "precision": 1.0,
-          "recall": 0.7467589197461978,
-          "f1": 0.855022305945575
+          "recall": 0.74939312985128,
+          "f1": 0.8567463962945684
         },
         "bcubed": {
-          "mentions": 2968,
+          "mentions": 3007,
           "precision": 1.0,
-          "recall": 0.8981214169414533,
-          "f1": 0.9463266247621245
+          "recall": 0.8994427553981488,
+          "f1": 0.9470596077106977
         }
       },
       "resolved_only": {
         "pairwise": {
-          "mentions": 2968,
-          "tp": 351309,
+          "mentions": 3007,
+          "tp": 356254,
           "fp": 0,
           "fn": 119136,
-          "tn": 3932583,
+          "tn": 4044131,
           "precision": 1.0,
-          "recall": 0.7467589197461978,
-          "f1": 0.855022305945575
+          "recall": 0.74939312985128,
+          "f1": 0.8567463962945684
         },
         "bcubed": {
-          "mentions": 2968,
+          "mentions": 3007,
           "precision": 1.0,
-          "recall": 0.8981214169414533,
-          "f1": 0.9463266247621245
+          "recall": 0.8994427553981488,
+          "f1": 0.9470596077106977
         }
       },
-      "scored_mentions": 2968,
-      "scored_mentions_resolved": 2968,
+      "scored_mentions": 3007,
+      "scored_mentions_resolved": 3007,
       "scored_mentions_abstained": 0
     },
     "false_merges": {
@@ -143,9 +143,9 @@
     },
     "precision_by_method": {
       "strong_key_email": {
-        "scored_mentions": 2965,
-        "decidable": 2965,
-        "correct": 2965,
+        "scored_mentions": 3004,
+        "decidable": 3004,
+        "correct": 3004,
         "wrong": 0,
         "indeterminate": 0,
         "precision": 1.0,
@@ -166,43 +166,43 @@
     "metrics": {
       "with_abstention_as_singletons": {
         "pairwise": {
-          "mentions": 4170,
-          "tp": 399747,
+          "mentions": 4340,
+          "tp": 404932,
           "fp": 0,
-          "fn": 174680,
-          "tn": 8117938,
+          "fn": 197798,
+          "tn": 8812900,
           "precision": 1.0,
-          "recall": 0.6959056590306514,
-          "f1": 0.820689117139238
+          "recall": 0.6718298408906144,
+          "f1": 0.8037060045928099
         },
         "bcubed": {
-          "mentions": 4170,
+          "mentions": 4340,
           "precision": 1.0,
-          "recall": 0.762120108992109,
-          "f1": 0.8650035886918329
+          "recall": 0.7340444158952971,
+          "f1": 0.8466270058213079
         }
       },
       "resolved_only": {
         "pairwise": {
-          "mentions": 3536,
-          "tp": 399747,
+          "mentions": 3595,
+          "tp": 404932,
           "fp": 0,
           "fn": 120023,
-          "tn": 5730110,
+          "tn": 5935260,
           "precision": 1.0,
-          "recall": 0.7690844027165862,
-          "f1": 0.8694716900285694
+          "recall": 0.7713651646331591,
+          "f1": 0.8709273277290682
         },
         "bcubed": {
-          "mentions": 3536,
+          "mentions": 3595,
           "precision": 1.0,
-          "recall": 0.9120527459350616,
-          "f1": 0.9540037510722911
+          "recall": 0.9134961083800772,
+          "f1": 0.9547927527832001
         }
       },
-      "scored_mentions": 4170,
-      "scored_mentions_resolved": 3536,
-      "scored_mentions_abstained": 634
+      "scored_mentions": 4340,
+      "scored_mentions_resolved": 3595,
+      "scored_mentions_abstained": 745
     },
     "false_merges": {
       "count": 0,
@@ -271,18 +271,18 @@
     },
     "precision_by_method": {
       "graph_evidence": {
-        "scored_mentions": 397,
+        "scored_mentions": 405,
         "decidable": 12,
         "correct": 12,
         "wrong": 0,
-        "indeterminate": 385,
+        "indeterminate": 393,
         "precision": 1.0,
         "examples_wrong": []
       },
       "strong_key_email": {
-        "scored_mentions": 2965,
-        "decidable": 2965,
-        "correct": 2965,
+        "scored_mentions": 3004,
+        "decidable": 3004,
+        "correct": 3004,
         "wrong": 0,
         "indeterminate": 0,
         "precision": 1.0,
@@ -298,11 +298,11 @@
         "examples_wrong": []
       },
       "token_subset_unique": {
-        "scored_mentions": 171,
+        "scored_mentions": 183,
         "decidable": 40,
         "correct": 40,
         "wrong": 0,
-        "indeterminate": 131,
+        "indeterminate": 143,
         "precision": 1.0,
         "examples_wrong": []
       }
@@ -468,7 +468,7 @@
     }
   },
   "gold_free_false_merge_sweep": {
-    "entities_checked": 1257,
+    "entities_checked": 1271,
     "entities_whose_addresses_disagree_on_the_name": 1,
     "detail": [
       {
@@ -487,11 +487,11 @@
     ]
   },
   "abstention": {
-    "unresolved_with_multiple_candidates": 1695,
+    "unresolved_with_multiple_candidates": 2000,
     "buckets": {
-      "no_employee_matches_surface": 985,
-      "unique_employee_existed": 585,
-      "ambiguous_in_directory": 125
+      "no_employee_matches_surface": 1143,
+      "unique_employee_existed": 687,
+      "ambiguous_in_directory": 170
     },
     "examples": {
       "no_employee_matches_surface": [
@@ -505,36 +505,36 @@
       "unique_employee_existed": [
         "alex.h",
         "liam",
+        "olivia",
         "chris",
         "maya",
-        "maya",
-        "ben"
+        "alex"
       ],
       "ambiguous_in_directory": [
         "emily",
         "lee",
         "jordan",
+        "jordan",
         "ethan",
-        "marcus",
-        "lee"
+        "marcus"
       ]
     },
-    "defensible_rate": 0.6548672566371682,
-    "forced_by_directory_ambiguity_rate": 0.07374631268436578
+    "defensible_rate": 0.6565,
+    "forced_by_directory_ambiguity_rate": 0.085
   },
   "graph_evidence_diagnostics": {
-    "decisions": 1066,
-    "one_token_surfaces": 1055,
+    "decisions": 1074,
+    "one_token_surfaces": 1063,
     "landed_on_a_directory_employee": 12,
-    "landed_outside_the_directory": 1054,
+    "landed_outside_the_directory": 1062,
     "same_handle_same_document_conflicts": 0,
     "conflicting_handles": []
   },
   "caveats": [
-    "Strict precision is close to structurally guaranteed, not earned. 2728 of 2968 strict labels come from the same address the tier-1 rule keyed on, and the resolver only merges identities that share a full name \u2014 while every full name in the directory is unique. A false merge of two employees therefore cannot appear in this label set. Read strict recall, not strict precision.",
+    "Strict precision is close to structurally guaranteed, not earned. 2764 of 3007 strict labels come from the same address the tier-1 rule keyed on, and the resolver only merges identities that share a full name \u2014 while every full name in the directory is unique. A false merge of two employees therefore cannot appear in this label set. Read strict recall, not strict precision.",
     "No abstained mention carries a strict label, so strict recall measures fragmentation only, never the cost of refusing. Every unresolved surface with two or more name tokens is a bot or a handle (`infra-bot`, `alice-tilman`), not a directory name. The lenient run is where abstention enters the recall figure.",
-    "The graph-evidence tier is effectively unscorable against this oracle: 1055 of its 1066 decisions are on one-token surfaces, for which a directory of employees supplies no referent, and 1054 land on identities the directory does not contain. Its lenient precision rests on a small decidable sample; treat the sample size as the headline.",
+    "The graph-evidence tier is effectively unscorable against this oracle: 1063 of its 1074 decisions are on one-token surfaces, for which a directory of employees supplies no referent, and 1062 land on identities the directory does not contain. Its lenient precision rests on a small decidable sample; treat the sample size as the headline.",
     "Lenient precision is near-structural too. A lenient label is a function of the surface token, and the resolver's candidate set is a function of the same token, so two mentions can only land in one entity with different labels if their surfaces differ \u2014 which is exactly the case the label rule declines to cover. Zero false positives here is weak evidence, not strong evidence.",
-    "The oracle covers only Redwood Inference employees. Customers, vendors and partners in this corpus are out of scope by construction, so a mention resolved to an outsider is never counted right or wrong. It sees 106 of 1257 entities; the gold-free sweep below is the only check that reaches the rest."
+    "The oracle covers only Redwood Inference employees. Customers, vendors and partners in this corpus are out of scope by construction, so a mention resolved to an outsider is never counted right or wrong. It sees 106 of 1271 entities; the gold-free sweep below is the only check that reaches the rest."
   ]
 }

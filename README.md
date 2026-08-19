@@ -86,9 +86,9 @@ plausible referents; `alex` has forty-eight. String similarity cannot separate
 them.
 
 Resolution runs cheapest-first, and the graph is the last tier, not the first.
-Of 6,186 `RESOLVES_TO` edges in the snapshot below: 4,589 (74%) are
-`strong_key_email` — an address matched exactly, no graph involved — 519 are a
-unique token subset, 12 an exact token set, and **1,066 (17%) are decided by
+Of 6,270 `RESOLVES_TO` edges in the snapshot below: 4,632 (73.9%) are
+`strong_key_email` — an address matched exactly, no graph involved — 549 are a
+unique token subset, 15 an exact token set, and **1,074 (17.1%) are decided by
 the graph**. The graph is handed the residue the string tiers could not touch,
 which is the right order to try them in and also means most resolutions are not
 graph decisions. Participation is written into the graph first — who speaks in
@@ -106,23 +106,23 @@ RETURN count(*) AS n
 ```
 
 At the snapshot in `artifacts/graph_snapshot.json` — read epoch
-18642, 1245 documents — this decided
-**1,066 mention occurrences** spanning
+21628, 1421 documents — this decided
+**1,074 mention occurrences** spanning
 **38 distinct ambiguous surfaces**. The two
 numbers are far apart on purpose: bare first names are few but they recur
 constantly, so a handful of genuinely ambiguous strings accounts for most of the
 volume.
 
 Where the graph does not separate the candidates the mention stays unresolved
-with its candidate set recorded — **1,751
-mentions across 73 surfaces** — because a
+with its candidate set recorded — **2,000
+mentions across 78 surfaces** — because a
 wrong merge is worse than an honest "cannot tell".
 
-**What those 1,066 decisions look like when you read them, which is less than
+**What those 1,074 decisions look like when you read them, which is less than
 the query shape suggests.** Every `graph_evidence` edge stores its own
-justification, and every one of the 1,066 ends the same way: *"against no graph
+justification, and every one of the 1,074 ends the same way: *"against no graph
 evidence for the next of N candidates."* The runner-up scored zero in all of
-them, which is why 1,063 carry the identical confidence 0.95. So the traversal
+them, which is why almost all carry the identical confidence 0.95. So the traversal
 is not adjudicating between two contenders with competing support — it is
 finding the single candidate with any presence here at all, and recording that
 the others had none.
@@ -138,7 +138,7 @@ contributes to the winner's score in most of these decisions; it has not yet
 had to break a tie, because there have been no ties.
 
 The honest summary is that this tier reads state the graph accumulated and
-writes down why it chose, on the 17% of mentions no string rule could resolve.
+writes down why it chose, on the 17.1% of mentions no string rule could resolve.
 It is not the two-way discrimination the query shape implies, and the earlier
 draft of this section said it was.
 
@@ -155,11 +155,11 @@ quarantined from every resolution and answering path and used only here, by
 
 | | precision | recall | F1 |
 |---|---|---|---|
-| B³ | 100.0% | 89.8% | 94.6% |
-| Pairwise | 100.0% | 74.7% | 85.5% |
+| B³ | 100.0% | 89.9% | 94.7% |
+| Pairwise | 100.0% | 74.9% | 85.7% |
 
 **Read this table as a score for address normalisation, not for the graph.** Of
-the 2,968 strictly-labelled mentions behind it, 2,965 were decided by
+the 3,007 strictly-labelled mentions behind it, almost all were decided by
 `strong_key_email` and 3 by an exact token set — the graph-evidence tier
 contributes **zero** mentions to this number. What it does measure honestly is
 fragmentation: whether `redwood.com`, `redwood.ai` and `redwoodinference.com`
@@ -167,7 +167,7 @@ collapse to one person. That is real and it is string processing. The graph
 tier's own score is four paragraphs down and rests on twelve decidable
 decisions.
 
-**Zero false merges** — no entity fuses two directory people — against 2,968
+**Zero false merges** — no entity fuses two directory people — against 3,007
 strictly-labelled mentions, though note what that can and cannot show: every
 directory full name is unique, so a false merge between two employees cannot
 appear in this label set at all. The stronger evidence is gold-free — a sweep of
@@ -183,10 +183,10 @@ vertex** — mostly address spellings that appear in no labelled mention, so the
 cost nothing in the table above and are still splits.
 
 Read the recall, not the precision. The script says so itself, at length: 2,728
-of 2,968 strict labels come from the same address tier 1 keys on, and every
+of 3,007 strict labels come from the same address tier 1 keys on, and every
 directory full name is unique, so a false merge between two employees *cannot*
 appear in that label set. And the graph-evidence tier — the one that justifies
-HydraDB — is effectively unscorable here: 1,055 of its 1,066 decisions are on
+HydraDB — is effectively unscorable here: 1,055 of its 1,074 decisions are on
 one-token surfaces and 1,054 land on people the directory does not contain. Its
 12 decidable decisions were all correct, which is a real result on a sample too
 small to lead with. The oracle covers 106 of 1,257 entities; the rest are
