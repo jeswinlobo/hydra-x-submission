@@ -323,6 +323,23 @@ joining 57 documents** — and documents carrying a ticket span all nine sources
 (gmail 243, slack 114, linear 25, google_drive 19, jira 11, github 10,
 confluence 9, hubspot 3, fireflies 1).
 
+**These claims now enter synthesis**, which is what makes the traversal capable
+of changing an answer rather than decorating a panel. It was collected and
+rendered but never handed to the model, so it could not affect anything — and a
+graph feature that cannot alter an output is not a graph feature. Related claims
+are appended after everything retrieval found and capped at six, because the
+lesson recorded in `docs/negative-results.md` is that putting graph-found
+evidence *first* displaced lexical evidence out of the window and cost three
+answers. Their spans are validated against their own source bodies exactly as
+any other claim is; a related claim with no verbatim span is dropped rather than
+trusted because the graph reached it.
+
+What it is worth today, measured rather than implied: on the demo questions the
+traversal contributed **zero** claims to a supported answer — one question's
+documents share no ticket, and the other correctly abstains. The mechanism is
+wired and the path is real; its reach is bounded by the 31 shared tickets below,
+not by the plumbing.
+
 Be precise about what that is worth: 31 shared tickets is a small number, and
 the reason is the graph holds 1,421 of 511,962 documents. Two documents citing
 the same ticket are both present only rarely at that ratio, and the yield grows

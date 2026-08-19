@@ -104,6 +104,10 @@ class AnswerController:
         # did not reach. Off only for tests that assert on the lexical path in
         # isolation, and for measuring what the traversal is worth.
         self.follow_tickets = follow_tickets
+        # How many ticket-reached claims may enter synthesis. Small on purpose:
+        # they are appended after everything retrieval found, so a larger number
+        # would start displacing primary evidence out of `evidence_window`.
+        self._RELATED_EVIDENCE = 6
         self.registry = IdRegistry()
         self._queries: list[TracedQuery] = []
         self._ingested: list[dict] = []
@@ -209,12 +213,13 @@ class AnswerController:
             for row in self._run(
                 "related_by_ticket",
                 "MATCH (d:Document {dsid: $dsid})-[:REFERENCES]->(t:Ticket)"
-                "<-[:REFERENCES]-(o:Document)-[:ASSERTS]->(c:Claim) "
+                "<-[:REFERENCES]-(o:Document)-[:ASSERTS]->(c:Claim)"
+                "-[:SUPPORTED_BY]->(s:EvidenceSpan) "
                 "WHERE d.run_id = $r AND o.run_id = $r AND o.dsid <> $dsid "
                 "RETURN o.dsid AS dsid, o.title AS title, "
                 "o.source_type AS source_type, t.key AS ticket, "
                 "c.subject AS subject, c.predicate AS predicate, "
-                "c.object AS object "
+                "c.object AS object, s.quote AS quote "
                 f"LIMIT {int(limit)}",
                 {"dsid": dsid, "r": self.run_id},
                 hops=4,
@@ -425,6 +430,43 @@ class AnswerController:
                     sorted({c["dsid"] for c in claims}))
             except Exception:  # noqa: BLE001 - an answer must survive this
                 self._related = []
+
+        # Related evidence enters synthesis, which is what makes the traversal
+        # capable of changing an answer rather than only decorating a panel. It
+        # was collected and rendered but never handed to the model, so it could
+        # not affect anything — a graph feature that cannot alter an output is
+        # not a graph feature.
+        #
+        # Appended rather than interleaved, and bounded. The README records that
+        # putting graph-found evidence first displaced lexical evidence out of
+        # the window and cost three answers; ordering is the whole lesson from
+        # that, so these go last and cannot push out what retrieval found. Their
+        # spans are validated against their own source bodies exactly as any
+        # other claim is — a related claim with no verbatim span is dropped, not
+        # trusted because the graph reached it.
+        for row in (self._related or [])[: self._RELATED_EVIDENCE]:
+            quote = (row.get("quote") or "").strip()
+            dsid = row.get("dsid")
+            if not quote or not dsid:
+                continue
+            if bodies is not None and self.ingestor is not None and dsid not in bodies:
+                fetched = self.ingestor.body(dsid)
+                if fetched is not None:
+                    bodies[dsid] = fetched
+            if bodies is not None:
+                body = bodies.get(dsid)
+                if body is None or quote not in body:
+                    rejected_spans.append({"dsid": dsid, "quote": quote[:120]})
+                    continue
+            eid = f"e{len(claims)}"
+            claims.append({
+                "dsid": dsid, "subject": row["subject"],
+                "predicate": row["predicate"], "object": row["object"],
+                "confidence": 0.6, "quote": quote, "eid": eid,
+                "via_ticket": row.get("ticket"),
+            })
+            evidence.append(Evidence(dsid=dsid, text=quote,
+                                     title=row.get("title"), eid=eid))
 
         if not evidence:
             return self._abstain(
