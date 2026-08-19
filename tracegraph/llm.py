@@ -279,7 +279,7 @@ def _synthesis_schema(dsids: Sequence[str],
     return {
         "type": "object",
         "additionalProperties": False,
-        "required": ["answer", "sufficient", "citations"],
+        "required": ["answer", "sufficient", "citations", "evidence_used"],
         "properties": {
             "answer": {
                 "type": "string",

@@ -179,7 +179,8 @@ class AnswerController:
             "MATCH (d:Document {dsid: $dsid})-[:ASSERTS]->(c:Claim)"
             "-[:SUPPORTED_BY]->(s:EvidenceSpan) "
             "WHERE d.run_id = $r "
-            "RETURN c.subject AS subject, c.predicate AS predicate, "
+            "RETURN c.id AS claim_id, s.id AS span_id, "
+            "c.subject AS subject, c.predicate AS predicate, "
             "c.object AS object, c.confidence AS confidence, s.quote AS quote, "
             "s.start AS start, s.end AS end, d.dsid AS dsid, d.title AS title",
             {"dsid": dsid, "r": self.run_id},
@@ -218,6 +219,7 @@ class AnswerController:
                 "WHERE d.run_id = $r AND o.run_id = $r AND o.dsid <> $dsid "
                 "RETURN o.dsid AS dsid, o.title AS title, "
                 "o.source_type AS source_type, t.key AS ticket, "
+                "c.id AS claim_id, s.id AS span_id, "
                 "c.subject AS subject, c.predicate AS predicate, "
                 "c.object AS object, s.quote AS quote "
                 f"LIMIT {int(limit)}",
@@ -413,6 +415,10 @@ class AnswerController:
                     "dsid": dsid, "subject": row["subject"],
                     "predicate": row["predicate"], "object": row["object"],
                     "confidence": row["confidence"], "quote": quote, "eid": eid,
+                    # The persisted vertex ids, so a reader can look the claim
+                    # up in the graph. `eid` is a per-request handle for the
+                    # model to cite and means nothing outside this response.
+                    "claim_id": row.get("claim_id"), "span_id": row.get("span_id"),
                 })
                 evidence.append(Evidence(dsid=dsid, text=quote,
                                          title=row["title"], eid=eid))
@@ -463,6 +469,7 @@ class AnswerController:
                 "dsid": dsid, "subject": row["subject"],
                 "predicate": row["predicate"], "object": row["object"],
                 "confidence": 0.6, "quote": quote, "eid": eid,
+                "claim_id": row.get("claim_id"), "span_id": row.get("span_id"),
                 "via_ticket": row.get("ticket"),
             })
             evidence.append(Evidence(dsid=dsid, text=quote,
@@ -506,10 +513,22 @@ class AnswerController:
         # refusal to narrow — this falls back to the document-level set rather
         # than claiming the answer rested on no evidence at all.
         by_eid = {c["eid"]: c for c in claims}
-        named = [by_eid[e] for e in result.evidence_used
-                 if e in by_eid and by_eid[e]["dsid"] in cited]
-        used = named or [c for c in claims if c["dsid"] in cited]
-        self._narrowed = bool(named)
+        used = [by_eid[e] for e in result.evidence_used
+                if e in by_eid and by_eid[e]["dsid"] in cited]
+
+        # Fail closed. An earlier version fell back to "every claim in a cited
+        # document" when the model named nothing usable, which is exactly the
+        # bug this replaced — and a fallback that silently restores the defect
+        # is worse than no fallback, because the output looks identical either
+        # way. `evidence_used` is required by the schema, so an empty result
+        # here means the model cited documents it cannot point inside, and the
+        # honest response to that is to abstain rather than to guess which of
+        # its claims were meant.
+        if not used:
+            return self._abstain(
+                question, "the answer cited documents but named no evidence "
+                "inside them, so the claims behind it cannot be identified",
+                started, claims, rejected_spans, rejected=rejected)
         confidence = round(
             min(0.95, 0.4 + 0.1 * len(cited) + 0.05 * min(len(used), 6)), 3)
 
@@ -527,7 +546,10 @@ class AnswerController:
 
         return ControllerResult(
             answer=result.answer, document_ids=cited, answerability=answerability,
-            confidence=confidence, claims=used[:20], alternatives=alternatives,
+            # Every claim the answer rested on, uncapped. A `[:20]` here showed
+            # 20 of 26 and called it the evidence path, which is a different
+            # claim from the one the README makes.
+            confidence=confidence, claims=used, alternatives=alternatives,
             related=self._related, rejected_citations=rejected,
             rejected_spans=rejected_spans, trace=self._trace(started),
         )

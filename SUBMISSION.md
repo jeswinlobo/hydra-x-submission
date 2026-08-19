@@ -148,12 +148,12 @@ batch, **62 (12%) cited evidence not appearing verbatim in the source and were
 rejected**.
 
 Ingestion runs at ~19,000 nodes/second; registering 511,958 document ids produced
-zero collisions. 305 tests pass, 27 of them against the live engine.
+zero collisions. 322 tests pass, 27 of them against the live engine.
 
 ## Team members and contributions
 
 A team of three. One thing to state plainly, because the repository does not
-show it on its own: **the branch being submitted carries only Jeswin's 46
+show it on its own: **the branch being submitted carries only Jeswin's 49
 commits.** Sheldon's and Stalin's work is in the project's earlier history, on
 the original `hydra-x` repository, and was rewritten rather than carried
 forward — the `app/` layout they built became `tracegraph/`. Their contributions
@@ -161,7 +161,7 @@ below are real and are described from that history; they are simply not visible
 in `git log` here, and saying so is more useful than letting a judge discover
 the gap.
 
-**Jeswin Lobo** ([@jeswinlobo](https://github.com/jeswinlobo)) — 44 commits,
+**Jeswin Lobo** ([@jeswinlobo](https://github.com/jeswinlobo)) — 49 commits,
 +23,681 / −2,804 lines. Architecture and the `tracegraph/` implementation the
 submission runs on: entity resolution and its graph tiers, conflict detection
 and trust decomposition, the deterministic answer controller, on-demand

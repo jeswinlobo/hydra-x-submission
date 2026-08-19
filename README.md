@@ -305,15 +305,17 @@ are now `Ticket` nodes, and the answer path walks four hops through them:
 ```cypher
 MATCH (d:Document {dsid: $dsid})-[:REFERENCES]->(t:Ticket)
       <-[:REFERENCES]-(o:Document)-[:ASSERTS]->(c:Claim)
+      -[:SUPPORTED_BY]->(s:EvidenceSpan)
 WHERE o.dsid <> $dsid
-RETURN o.dsid, o.source_type, t.key, c.subject, c.predicate, c.object
+RETURN o.dsid, o.source_type, t.key, c.id, s.id,
+       c.subject, c.predicate, c.object, s.quote
 ```
 
 This is the traversal lexical search cannot perform. A Slack thread naming
 `PR-19855` and a Google Drive document naming `PR-19855` share almost no
 vocabulary — one says "the retry storm", the other "per model/region gating" —
 so no amount of term overlap connects them. The ticket key does, exactly.
-Measured live: **24–49ms**, Slack reaching Google Drive.
+Measured live: **24–365ms**, Slack reaching Google Drive.
 
 It matters most for the six sources with no dedicated parser. Those fall through
 to `generic`, which extracts no mentions at all, so a ticket key is the only
@@ -360,6 +362,15 @@ can be inspected on its own and one span can support several claims:
 ```
 Document -[:ASSERTS]-> Claim -[:SUPPORTED_BY]-> EvidenceSpan
 ```
+
+**The conflicts panel is cached on the engine's read epoch**, which is the
+consistency position every answer already reports. It moves exactly when the
+disputes could change and never otherwise, so unlike a time-based cache it
+cannot serve a stale conflict. Be exact about what that buys: **~0.5s warm, and
+74–95s cold**. A fresh clone pays the cold cost once, because recomputing walks
+every claim, aligns predicates, groups by resolved identity and scores four
+trust components per version. Materialising it into the graph would remove that
+and has not been done.
 
 **Conflict resolution, in the answer itself.** The brief names four things a
 question can need — a lookup, multi-hop reasoning, conflict resolution, and
@@ -653,7 +664,7 @@ round-trips a real query first, because a port is not proof.
 ## Verifying the claims above
 
 ```bash
-uv run pytest                             # 305 tests, 27 against the live engine
+uv run pytest                             # 322 tests, 27 against the live engine
 uv run python scripts/35_verify_gate.py   # 14 checks, read back from the graph
 uv run python scripts/36_repair_graph.py  # audit identities and undecided mentions
 uv run python scripts/37_rebuild_resolution.py  # re-decide every identity, report drift

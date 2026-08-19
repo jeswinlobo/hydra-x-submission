@@ -424,8 +424,13 @@ def _evidence_graph_from_claims(dsids: list[str], used: list[dict]) -> dict:
         dsid = claim.get("dsid")
         if not dsid or f"doc:{dsid}" not in nodes:
             continue
-        key = claim.get("eid") or f"{claim['subject']}|{claim['predicate']}"
-        cid, sid = f"claim:{key}", f"span:{key}"
+        # Persisted graph ids where the claim carries them, so a node in this
+        # panel is the same object a judge can query for. The request handle is
+        # only a fallback for a claim that predates them.
+        cid = (f"claim:{claim['claim_id']}" if claim.get("claim_id") is not None
+               else f"claim:{claim.get('eid')}")
+        sid = (f"span:{claim['span_id']}" if claim.get("span_id") is not None
+               else f"span:{claim.get('eid')}")
         nodes[cid] = {
             "id": cid, "kind": "Claim",
             "label": f"{str(claim['subject'])[:22]} {str(claim['predicate'])[:14]}",
