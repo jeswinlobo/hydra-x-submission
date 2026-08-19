@@ -135,7 +135,7 @@ batch, **62 (12%) cited evidence not appearing verbatim in the source and were
 rejected**.
 
 Ingestion runs at ~19,000 nodes/second; registering 511,958 document ids produced
-zero collisions. 177 tests pass, 27 of them against the live engine.
+zero collisions. 278 tests pass, 27 of them against the live engine.
 
 ## Team members and contributions
 
@@ -147,7 +147,7 @@ which is credited here and in the commit history.
 
 | | |
 |---|---|
-| GitHub | https://github.com/jeswinlobo/hydra-x |
+| GitHub | https://github.com/jeswinlobo/hydra-x-submission |
 | Demo video | *(add before submitting)* |
 | Deployed | none — runs locally against a pinned HydraDB container |
 

@@ -45,29 +45,55 @@ Neither of those documents was preloaded. Retrieval found them among 511,962,
 and they were enriched while the question was being answered.
 
 Ask something the corpus contradicts itself about and it says so, with both
-versions and the document behind each:
+versions and the document behind each. Every screenshot below is a real run
+against the live system, captured by loading `?q=` on the running server — no
+mock-ups:
 
-> **Q: Interview slate and role anchors for the Staff Inference Engineer opening**
->
-> **conflicting** · confidence 0.6 · 5 contested facts
->
-> `Grace O'Connor — works as`
-> cited *Hiring Manager, Inference Runtime* · rival *Director, Talent Strategy*
-> · evidence does not decide between them
+![A conflicting answer: the verdict badge, two validated citations, supporting
+claims each with a verbatim span, and three contested facts showing the cited
+value against its rival with the document behind each](docs/images/conflict.png)
+
+The contested panel is not decoration — the verdict came from walking
+`CONFLICTS_WITH` one hop out from the claims the answer actually used, so an
+answer resting on a disputed fact cannot come back singular and confident.
 
 Ask something the corpus does not contain and it abstains — no citations, no
 claims, no guess.
 
+![An abstention: no citations, no claims, and an explicit statement that the
+evidence does not answer the question](docs/images/abstention.png)
+
+And the resolution panel shows both halves of the identity decision — the
+surfaces folded into one person, the method and confidence behind each, the
+`algo.SPpaths` path the engine returned for a participation decision, and the
+surfaces deliberately left unresolved because the graph could not separate their
+candidates:
+
+![The entity resolution panel: several surfaces resolved to one entity with the
+method and confidence for each, a rendered algo.SPpaths participation path, and
+a "left ambiguous on purpose" table showing surfaces kept unresolved with their
+candidate counts](docs/images/resolution.png)
+
 ## Why HydraDB is doing real work
 
 The graph is not a place results are filed after the fact. Four things are
-decided by traversal, and none of them survives if HydraDB is removed.
+decided by traversal. Be precise about how much each one carries, because they
+differ, and the differences are measurable.
 
-**Entity resolution.** Slack is 55.8% of the corpus and its speakers are bare
-first names. `sam` has nineteen plausible referents; `alex` has forty-eight.
-String similarity cannot separate them. So participation is written into the
-graph first — who speaks in which channel, which mention sits in which document
-— and candidates are then scored by traversals over that structure:
+**Entity resolution — the fourth tier, and what it actually decides.** Slack is
+55.8% of the corpus and its speakers are bare first names. `sam` has nineteen
+plausible referents; `alex` has forty-eight. String similarity cannot separate
+them.
+
+Resolution runs cheapest-first, and the graph is the last tier, not the first.
+Of 6,186 `RESOLVES_TO` edges in the snapshot below: 4,589 (74%) are
+`strong_key_email` — an address matched exactly, no graph involved — 519 are a
+unique token subset, 12 an exact token set, and **1,066 (17%) are decided by
+the graph**. The graph is handed the residue the string tiers could not touch,
+which is the right order to try them in and also means most resolutions are not
+graph decisions. Participation is written into the graph first — who speaks in
+which channel, which mention sits in which document — and the remaining
+candidates are scored by traversals over that structure:
 
 ```cypher
 -- co-occurrence: is this candidate already in this very document?
@@ -92,6 +118,30 @@ with its candidate set recorded — **1,751
 mentions across 73 surfaces** — because a
 wrong merge is worse than an honest "cannot tell".
 
+**What those 1,066 decisions look like when you read them, which is less than
+the query shape suggests.** Every `graph_evidence` edge stores its own
+justification, and every one of the 1,066 ends the same way: *"against no graph
+evidence for the next of N candidates."* The runner-up scored zero in all of
+them, which is why 1,063 carry the identical confidence 0.95. So the traversal
+is not adjudicating between two contenders with competing support — it is
+finding the single candidate with any presence here at all, and recording that
+the others had none.
+
+That is worth stating plainly because the co-occurrence walk is also anchored on
+one document (`(d:Document {id: $did})`), so its question is "has some other
+mention *in this very document* already resolved to this person?" The entity it
+lands on is global — established by every document ingested before this one, and
+durable across restarts through `MERGED_INTO` — but the evidence weighed is
+local, and a dictionary over the document being ingested would reproduce that
+half. The participation check is the genuinely cross-document half, and it
+contributes to the winner's score in most of these decisions; it has not yet
+had to break a tie, because there have been no ties.
+
+The honest summary is that this tier reads state the graph accumulated and
+writes down why it chose, on the 17% of mentions no string rule could resolve.
+It is not the two-way discrimination the query shape implies, and the earlier
+draft of this section said it was.
+
 Every count here is generated, not typed. The graph grows whenever anyone asks a
 question, so figures written into prose drift within hours; `scripts/35_verify_gate.py`
 rewrites the snapshot each run and this section quotes it. If a number here
@@ -108,13 +158,32 @@ quarantined from every resolution and answering path and used only here, by
 | B³ | 100.0% | 89.8% | 94.6% |
 | Pairwise | 100.0% | 74.7% | 85.5% |
 
-**Zero false merges** — no entity fuses two directory people — against 2,965
-strictly-labelled mentions. Splitting one person across several entities was the
-whole of the recall loss and is largely fixed: 31 of 53 covered employees were
-split, now 1, which moved B³ recall from 82.7%.
+**Read this table as a score for address normalisation, not for the graph.** Of
+the 2,968 strictly-labelled mentions behind it, 2,965 were decided by
+`strong_key_email` and 3 by an exact token set — the graph-evidence tier
+contributes **zero** mentions to this number. What it does measure honestly is
+fragmentation: whether `redwood.com`, `redwood.ai` and `redwoodinference.com`
+collapse to one person. That is real and it is string processing. The graph
+tier's own score is four paragraphs down and rests on twelve decidable
+decisions.
+
+**Zero false merges** — no entity fuses two directory people — against 2,968
+strictly-labelled mentions, though note what that can and cannot show: every
+directory full name is unique, so a false merge between two employees cannot
+appear in this label set at all. The stronger evidence is gold-free — a sweep of
+all 1,257 entities finds one that disagrees with itself.
+
+Splitting one person across several entities was the whole of the recall loss
+and is largely fixed. Two numbers, because they count different things and
+quoting only the flattering one would be the error this section is about: among
+mentions carrying a strict label, fragments fell from 31 of 53 covered employees
+to **1**, which moved B³ recall from 82.7%. Counting *entities* rather than
+scored mentions, **33 of 106 covered employees still map to more than one
+vertex** — mostly address spellings that appear in no labelled mention, so they
+cost nothing in the table above and are still splits.
 
 Read the recall, not the precision. The script says so itself, at length: 2,728
-of 2,965 strict labels come from the same address tier 1 keys on, and every
+of 2,968 strict labels come from the same address tier 1 keys on, and every
 directory full name is unique, so a false merge between two employees *cannot*
 appear in that label set. And the graph-evidence tier — the one that justifies
 HydraDB — is effectively unscorable here: 1,055 of its 1,066 decisions are on
@@ -162,6 +231,46 @@ fragmented — merging those would be the false merge the whole module refuses.
 through a form documented in `docs/engine-notes.md`. The graph now holds **zero**
 identities spanning unrelated organisations and **zero** mentions carrying two
 resolutions; the script is idempotent, so a second run finds nothing to change.
+
+**Multi-hop, across documents and across sources.** Every parser has always
+extracted ticket keys into `ParsedDoc.references`. Nothing read them. They are
+the one exact, inference-free link between documents this corpus offers, so they
+are now `Ticket` nodes, and the answer path walks four hops through them:
+
+```cypher
+MATCH (d:Document {dsid: $dsid})-[:REFERENCES]->(t:Ticket)
+      <-[:REFERENCES]-(o:Document)-[:ASSERTS]->(c:Claim)
+WHERE o.dsid <> $dsid
+RETURN o.dsid, o.source_type, t.key, c.subject, c.predicate, c.object
+```
+
+This is the traversal lexical search cannot perform. A Slack thread naming
+`PR-19855` and a Google Drive document naming `PR-19855` share almost no
+vocabulary — one says "the retry storm", the other "per model/region gating" —
+so no amount of term overlap connects them. The ticket key does, exactly.
+Measured live: **24–49ms**, Slack reaching Google Drive.
+
+It matters most for the six sources with no dedicated parser. Those fall through
+to `generic`, which extracts no mentions at all, so a ticket key is the only
+structure recoverable from them. Over the 1,285 ingested documents: **627
+tickets, 662 `REFERENCES` edges, 31 tickets appearing in two or more documents,
+joining 57 documents** — and documents carrying a ticket span all nine sources
+(gmail 243, slack 114, linear 25, google_drive 19, jira 11, github 10,
+confluence 9, hubspot 3, fireflies 1).
+
+Be precise about what that is worth: 31 shared tickets is a small number, and
+the reason is the graph holds 1,285 of 511,962 documents. Two documents citing
+the same ticket are both present only rarely at that ratio, and the yield grows
+roughly quadratically with the ingested slice. The traversal is correct and
+cheap; its coverage is a function of how much has been ingested, not of the
+query. `scripts/79_backfill_tickets.py` writes them for documents ingested
+before this existed, and is idempotent.
+
+The filter is where the risk sits. `[A-Z]{2,10}-\d{1,6}` is the shape of a
+ticket and equally the shape of `AES-256`, `SOC-2` and `INC-2026`; a false
+ticket joins two unrelated documents and the traversal would present that as a
+connection. `tests/test_ticket_graph.py` holds 35 cases, most of them about what
+must *not* become a ticket.
 
 **Provenance.** Claims and evidence spans are nodes, not properties, so a span
 can be inspected on its own and one span can support several claims:
@@ -212,6 +321,22 @@ otherwise show a conflict the answer cannot see. Thirty-one edges were missing
 when that check was first written. `scripts/55_conflicts.py` remains for a full sweep; the two agree because
 both call the same detector and edge ids are deterministic, so a pair judged
 twice converges on one edge.
+
+**What conflict detection can reach, stated because the ceiling is low and the
+reason is deliberate.** `ontology.py` models eleven canonical predicates, five
+of them single-cardinality — and only a single-cardinality predicate can
+conflict, because two values for a multi-valued relation are not a
+disagreement. Extraction, meanwhile, produces whatever the documents say: at the
+snapshot below, **3,187 distinct raw predicates across 6,553 claims**. Of those,
+2,142 claims (32.7%) align to a canonical predicate and **1,572 (24.0%) are on a
+predicate that can conflict at all**. The remaining 4,411 stay raw.
+
+So conflict detection sees roughly a quarter of the graph's claims. That is a
+catalogue that declines rather than guesses — the alternative is forcing
+`has duration` and `supports` into a category and manufacturing disputes between
+facts that do not compete — and the long tail is mostly junk (`is` accounts for
+301 claims on its own). But a quarter is the honest reach, and a wider ontology
+is the clearest single thing that would extend it.
 
 Three things had to be right for that to be correct rather than merely present,
 and the first two were wrong until a live comparison against a full sweep found
@@ -291,9 +416,20 @@ working set* — documents that have been asked about. This is not only tidier; 
 HydraDB label index holds at most 250,000 vertices, so putting all 511,962
 documents under one label does not work (see `docs/engine-notes.md`).
 
-The model writes prose. It does not decide what is true, what may be cited, or
-whether a question is answerable — those are the controller's, and each is
-settled by a check that can fail.
+**Where the model's judgement ends.** The model writes prose and it reports
+whether the passages it was given are sufficient. It does not decide what may be
+cited, whether a span is real, or whether the answer sits on a dispute — those
+are the controller's, and each is settled by a check that can fail: a citation
+outside the supplied set is dropped, a citation that does not resolve to a
+document under a labelled match is dropped, a span no longer verbatim in its
+source is dropped, and an answer stating a contested value comes back
+`conflicting` whatever the model called it.
+
+Abstention is the one verdict the two share. The controller abstains outright
+when the graph yields no evidence and when no returned citation survives
+validation; between those, `sufficient` is the model's call. Saying otherwise
+would be tidier and would not be true — which is why abstention is measured
+against the benchmark's own unanswerable questions rather than asserted.
 
 ## Results
 
@@ -325,7 +461,11 @@ production row is the one to read; top-20 is beneath it for comparison only:
 | **8 — production** | **0.900** | **0.875** | **0.833** | **0.800** | **0.771** | **0.599** | **0.475** | **0.424** |
 | 20 — comparison | 0.900 | 0.925 | 0.883 | 0.900 | 0.817 | 0.768 | 0.584 | 0.488 |
 
-All eight types the benchmark carries, none omitted. The recorded run is at
+Eight of the ten types the benchmark carries. The two missing ones are missing
+because document recall is undefined for them, not because they are unflattering:
+`high_level` (10 questions) and `info_not_found` (20) ship with no
+`expected_doc_ids`, so there is no document to have retrieved. `info_not_found`
+is scored instead as abstention, below. The recorded run is at
 `artifacts/recall_by_budget.json`, which holds every budget and every metric
 above, so these are checkable without re-running anything.
 
@@ -335,7 +475,11 @@ exists rather than a bigger index.
 **Evidence discipline, measured rather than asserted.** Of 505 claims the model
 produced in a pilot batch, **62 (12%) cited evidence that does not appear
 verbatim in the source and were rejected**. A span altering a single word of a
-real sentence is refused (`tests/test_conflicts.py`, `tests/test_parsers.py`).
+real sentence is refused, and so is one that changes only a quote mark or only
+its capitalisation — `tests/test_validate_spans.py` holds twenty-six cases
+against `llm.validate_spans`, including that an empty span cannot match every
+document and that the offsets written onto `EvidenceSpan` index the span they
+claim to.
 
 **Ingestion**: ~19,000 nodes/second measured; the whole corpus normalises in 22
 seconds and indexes in 312. Registering 511,958 document ids produced **zero
@@ -354,7 +498,7 @@ under a labelled match, an abstention carries no citations or claims, a
 `conflicting` verdict names the rival version, and a `supported` answer is not
 sitting on a dispute the system found. It also refuses to pass a run in which no
 question came back contested, because a controller that had quietly stopped
-detecting conflicts would otherwise score ten out of ten. Latency p50 8.6s, p95 13.4s.
+detecting conflicts would otherwise score ten out of ten. Latency p50 8.6s, p95 14.5s.
 
 `artifacts/demo_stability.json` records the run rather than summarising it: the
 commit, both model ids, the run and read epoch, and all forty raw latency
@@ -372,63 +516,13 @@ once. Answering spent longer scanning parquet than talking to the model.
 and indexes that: **4,465ms → 12ms per document fetch**, and the preload scan on
 the first question disappears entirely.
 
-**Two attempts to make the graph do retrieval work were measured and removed.**
-
-The second was the promising one: resolve a person the *question* names — not a
-document search happened to return — and walk
-`Entity ←RESOLVES_TO— Mention —MENTIONED_IN→ Document —ASSERTS→ Claim`. That
-starts somewhere lexical search cannot: `sam` is not a word that retrieves Sam
-Tyler's documents, it retrieves every document containing the string, whereas
-the resolver has already decided which of nineteen people the surface means. The
-traversal works — it resolves `Grace O'Connor` and `@soham` to single identities
-and returns their documents in about 400ms.
-
-It was removed because the measurement could not support it, and the reason is
-worth more than the feature. Over twenty alias-heavy questions, a graph-found
-document was cited in **2**. But of the twelve questions where the graph seeded
-*nothing at all* — where the two variants are the same code path — **four
-changed verdict anyway**, purely from model nondeterminism. The noise floor was
-larger than the signal, so a single-run A/B on this system cannot distinguish a
-retrieval feature from run-to-run variation. Establishing that would need
-repeated trials the deadline does not allow, and shipping an unproven feature
-that *looks* like graph reasoning is worse than shipping without it.
-
-The attempt did surface one thing worth stating, and it came out the opposite
-way to the intuition. Synthesis sees `evidence[:40]` against roughly 140 claims
-from eight retrieved documents, which looks like waste. Raising it to 96 was
-measured and reverted: ten rounds produced a crash, a wrong verdict, and
-synthesis times of 105s, 58s and 57s against a p50 of 8s. More evidence made the
-answer slower and less stable rather than better. The bound is doing work, and
-"the model only sees a third of it" was the wrong way to read it.
-
-**An earlier, blunter version was removed for a clearer reason.** The obvious
-next move is to widen retrieval by traversal: take the documents search found,
-walk `Document ←MENTIONED_IN— Mention —RESOLVES_TO→ Entity ←RESOLVES_TO— Mention
-—MENTIONED_IN→ Document`, and read the neighbours. It works as a query — five
-hops, ~250 ms, and it does reach documents lexical search did not.
-
-It changed no answers. On every question tried it produced the same citations
-and the same claims one to three seconds slower, and gating it to fire only on
-thin evidence made it fire never: search returns eight documents, each carrying
-around twenty extracted claims, so evidence is never thin. The bottleneck is not
-how much evidence there is but whether the right document was retrieved, and
-expanding from the wrong seed reaches the wrong neighbours. It was removed
-rather than shipped as an impressive-sounding path nothing takes.
-
-Where the graph *does* do multi-hop work is identity: 766 mention occurrences
-resolved by traversal over stored structure, scored by a two-hop co-occurrence
-walk and a one-hop participation check. `algo.SPpaths` returns the path behind a
-participation decision, and the panel renders the path the engine returned rather
-than a summary of it — currently a single `PARTICIPATED_IN` edge, reported as the
-one hop it is. That is a real traversal answer to a question an index cannot
-answer; retrieval expansion was not.
-
-**No graph-vs-no-graph ablation was run.** PLAN.md called for four variants —
-lexical only, hybrid, hybrid plus graph structure, full TraceGraph — and only
-the first was measured; the retrieval numbers above *are* the lexical baseline.
-So the case for the graph rests on the capability argument above and on the
-resolution decisions the gate reads back, not on a measured answer-quality
-delta. That is the honest state of it.
+**Two graph-retrieval features were built, measured, and removed.** Both worked
+as queries; neither survived measurement, and the second failed in an
+instructive way — the run-to-run noise floor of the system proved larger than
+the effect being measured, which means a single-run A/B here cannot distinguish
+a retrieval feature from model nondeterminism. The measurements, and what they
+imply about evaluating this class of system, are in
+[`docs/negative-results.md`](docs/negative-results.md).
 
 **Honest limits.** A cold question — one reaching documents the graph has not
 seen — takes 25–40 seconds, because enriching them during the request means live
@@ -445,7 +539,7 @@ re-chunked copy, a 2.5 GB lexical index) and **~8 GB RAM** — the container is
 capped at 6 GB in `docker-compose.yml`, so lower that first on a smaller machine.
 
 ```bash
-git clone https://github.com/jeswinlobo/hydra-x && cd hydra-x
+git clone https://github.com/jeswinlobo/hydra-x-submission && cd hydra-x-submission
 cp .env.example .env          # add ANTHROPIC_API_KEY
 # corpus: https://huggingface.co/datasets/onyx-dot-app/EnterpriseRAG-Bench
 #   -> dataset/EnterpriseRAG-Bench/data/{documents,questions}/test.parquet
@@ -453,6 +547,10 @@ cp .env.example .env          # add ANTHROPIC_API_KEY
 ./scripts/bootstrap.sh        # everything, in order, ~10 minutes
 ./scripts/60_serve.sh         # → http://127.0.0.1:8000
 ```
+
+A question can go in the URL — `http://127.0.0.1:8000/?q=your+question`, with
+`&tab=resolution` to open a panel — so a result is a link rather than an
+instruction to type something, and a reload reproduces it.
 
 `bootstrap.sh` checks its prerequisites before running anything slow, and every
 stage is resumable, so it is safe to run twice. `--fast` skips the slice: questions
@@ -465,16 +563,21 @@ round-trips a real query first, because a port is not proof.
 ## Verifying the claims above
 
 ```bash
-uv run pytest                             # 192 tests, 27 against the live engine
+uv run pytest                             # 278 tests, 27 against the live engine
 uv run python scripts/35_verify_gate.py   # 14 checks, read back from the graph
 uv run python scripts/36_repair_graph.py  # audit identities and undecided mentions
 uv run python scripts/37_rebuild_resolution.py  # re-decide every identity, report drift
 uv run python scripts/76_recall_by_budget.py  # recall at 4, 8 and 20, one pass
+uv run python scripts/78_abstention_eval.py   # abstention, graph vs no-graph
+uv run python scripts/79_backfill_tickets.py  # ticket graph coverage (report only)
 ```
 
-Every command above is read-only. `scripts/55_conflicts.py` is a pipeline step,
-not a check — it writes `CONFLICTS_WITH` edges — so it lives in `bootstrap.sh`
-rather than here; `36_repair_graph.py` likewise only writes with `--apply`.
+Every command above is read-only *with respect to the answer key* — none of them
+can see `gold_answer`. `78_abstention_eval.py` does enrich the graph, because
+answering a question is what it measures; the rest change nothing.
+`scripts/55_conflicts.py` is a pipeline step, not a check — it writes
+`CONFLICTS_WITH` edges — so it lives in `bootstrap.sh` rather than here;
+`36_repair_graph.py` likewise only writes with `--apply`.
 
 The gate script queries the graph rather than trusting the ingest, and its
 checks include the one that matters most: that citation validation distinguishes
@@ -505,6 +608,7 @@ assumption fails loudly instead of corrupting the graph quietly.
 |---|---|
 | `PLAN.md` | The execution plan this was built against |
 | `docs/engine-notes.md` | Verified HydraDB behaviour and its constraints |
+| `docs/negative-results.md` | Features built, measured, and removed, with the measurements |
 | `docs/corpus-notes.md` | What the corpus actually contains |
 | `docs/source-notes.md` | Document shapes for all nine sources |
 | `docs/refs.lock.md` | Pinned upstream commits and firewalled material |
