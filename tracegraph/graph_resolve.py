@@ -171,6 +171,66 @@ class GraphEvidence:
             ),
         )
 
+    def propose_from_structure(
+        self, initial: str, document_id: int, channel_id: int | None,
+    ) -> list[tuple[str, int, int, int]]:
+        """Candidates the graph can see that no string rule would have offered.
+
+        This is the case the track brief leads with — *"deciding that 'Sam',
+        '@soham' and 'S. Ratnaparkhi' are one person"* — and the first of the
+        three is the one string matching provably cannot reach. `sam` shares no
+        token with `soham ratnaparkhi`, so edit distance, token subsets and
+        embeddings all return nothing: there is no lexical signal to find,
+        because the two strings genuinely have almost nothing in common.
+
+        What *does* connect them is structure. Somebody called `sam` speaks in a
+        channel; Soham Ratnaparkhi participates in that channel; Soham is already
+        resolved elsewhere in this very document. None of that is in the string.
+
+        So instead of scoring candidates a string rule proposed, this asks the
+        graph to propose them: every person who participates in this channel or
+        is already resolved inside this document, with their evidence counts.
+        Returns `(entity_key, name, co_occurrence, participation)` per candidate.
+
+        **The initial is a guard, not the signal.** Requiring a shared first
+        letter costs almost nothing against real short forms — `sam`/`Soham`,
+        `liz`/`Elizabeth`, `dev`/`Devon` — and it stops the graph from proposing
+        that `sam` means `Priya Nair` merely because Priya happens to be the only
+        other person in a quiet channel. Structure decides which candidate wins;
+        the initial decides which are eligible to compete. Without it this tier
+        would be "one person is nearby, so the handle must be them", which is the
+        false merge the whole resolution module exists to refuse.
+        """
+        rows = self.client.bolt_read(
+            # Two sources of candidates in one read: people already resolved in
+            # this document, and people who participate in its channel.
+            "MATCH (e:Entity)<-[:RESOLVES_TO]-(m:Mention)-[:MENTIONED_IN]->"
+            "(d:Document {id: $did}) "
+            "WHERE e.run_id = $r AND e.name STARTS WITH $initial "
+            "RETURN DISTINCT e.id AS eid, e.key AS key, e.name AS name",
+            {"did": int(document_id), "r": self.run_id, "initial": initial},
+        )
+        seen = {r["eid"]: r for r in rows}
+
+        if channel_id is not None:
+            for row in self.client.bolt_read(
+                "MATCH (e:Entity)-[:PARTICIPATED_IN]->(c:Channel {id: $cid}) "
+                "WHERE e.run_id = $r AND e.name STARTS WITH $initial "
+                "RETURN DISTINCT e.id AS eid, e.key AS key, e.name AS name",
+                {"cid": int(channel_id), "r": self.run_id, "initial": initial},
+            ):
+                seen.setdefault(row["eid"], row)
+
+        self.queries += 1 + (1 if channel_id is not None else 0)
+
+        proposed: list[tuple[str, int, int, int]] = []
+        for eid, row in seen.items():
+            co = self.co_occurrence(eid, document_id)
+            part = self.participation(eid, channel_id) if channel_id else 0
+            if co or part:
+                proposed.append((row["key"], row["name"], co, part))
+        return proposed
+
     def evidence_path(self, entity_id: int, channel_id: int) -> list | None:
         """A renderable path behind a decision, straight from the engine.
 

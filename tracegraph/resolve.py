@@ -51,6 +51,10 @@ METHOD_STRONG_KEY = "strong_key_email"
 METHOD_TOKEN_EXACT = "token_set_exact"
 METHOD_TOKEN_UNIQUE = "token_subset_unique"
 METHOD_GRAPH_EVIDENCE = "graph_evidence"
+# The tier the brief's own example needs. `sam` shares no token with `soham
+# ratnaparkhi`, so every string rule above returns nothing and the graph has to
+# *propose* the identity rather than re-rank a set somebody else proposed.
+METHOD_GRAPH_PROPOSED = "graph_proposed"
 METHOD_UNRESOLVED = "unresolved"
 
 # Confidence is reported, not invented: these are the ceilings each method can
@@ -61,6 +65,11 @@ CONFIDENCE = {
     METHOD_TOKEN_EXACT: 0.95,
     METHOD_TOKEN_UNIQUE: 0.85,
     METHOD_GRAPH_EVIDENCE: 0.80,
+    # Below graph_evidence on purpose. That tier picks among candidates a string
+    # rule already vouched for; this one has no lexical corroboration at all
+    # beyond a shared initial, so it is the weakest positive claim made here and
+    # its ceiling says so.
+    METHOD_GRAPH_PROPOSED: 0.70,
     METHOD_UNRESOLVED: 0.0,
 }
 

@@ -32,9 +32,10 @@ from .llm import extract_claims
 from .loader import upsert_edges, upsert_nodes
 from .parquet_reader import RowLocator
 from .parsers import normalise_content, parse_document
-from .parsers.base import PERSON
+from .parsers.base import PERSON, name_tokens
 from .reconcile import reconcile_conflicts
-from .resolve import METHOD_GRAPH_EVIDENCE, METHOD_UNRESOLVED, Resolver, pack
+from .resolve import (CONFIDENCE, METHOD_GRAPH_EVIDENCE, METHOD_GRAPH_PROPOSED,
+                      METHOD_UNRESOLVED, Resolver, pack)
 
 DOC = "Document"
 MENTION = "Mention"
@@ -491,6 +492,81 @@ class OnDemandIngestor:
         report.seconds = prepared.seconds + (time.perf_counter() - started)
         return report
 
+    # A surface shorter than this is not a name being shortened, it is noise.
+    _MIN_SHORT_FORM = 3
+    # How decisively the graph must separate its own proposals. This tier has no
+    # lexical corroboration, so "one candidate scored and the rest did not" is
+    # the only evidence there is, and a second scoring candidate means the graph
+    # cannot tell them apart — which is an abstention, not a coin toss.
+    _PROPOSAL_REQUIRES_SOLE_WINNER = True
+
+    def _propose_from_structure(
+        self, evidence: GraphEvidence, mention, doc_id: int,
+        channel_id: int | None, entity_ids: dict, resolver,
+    ) -> tuple[int, str, float] | None:
+        """Let the graph name somebody no string rule could offer.
+
+        The track brief opens on this exact case — *"deciding that 'Sam',
+        '@soham' and 'S. Ratnaparkhi' are one person"* — and `Sam` is the one of
+        the three that string matching cannot reach. `{sam}` is not a subset of
+        `{soham, ratnaparkhi}`; there is no shared token, no small edit
+        distance, and no embedding of two four-letter strings that recovers the
+        relationship. The signal is not in the text at all.
+
+        It is in the graph: who speaks in this channel, who is already resolved
+        inside this document. So the candidate set comes from structure, and the
+        same co-occurrence and participation traversals that score every other
+        ambiguous surface then decide between them.
+
+        Three guards, because this is the weakest inference the resolver makes
+        and a wrong answer here is a false merge — the failure this module
+        exists to refuse:
+
+        * a single token of at least three characters, so this fires on short
+          forms rather than on prose;
+        * a shared first initial, which every real short form has and which stops
+          "one person happens to be nearby" from becoming an identity claim;
+        * a sole scoring candidate. Two candidates with evidence means the graph
+          cannot separate them, and the mention stays unresolved with that on
+          the record.
+        """
+        surface = (mention.surface or "").strip()
+        if mention.kind != PERSON or len(name_tokens(surface)) != 1:
+            return None
+        token = next(iter(name_tokens(surface)), "")
+        if len(token) < self._MIN_SHORT_FORM:
+            return None
+
+        proposed = evidence.propose_from_structure(
+            token[0].upper(), doc_id, channel_id)
+        scoring = [p for p in proposed if (p[2] or p[3])]
+        if not scoring:
+            return None
+        if self._PROPOSAL_REQUIRES_SOLE_WINNER and len(scoring) > 1:
+            return None
+
+        key, name, co, part = scoring[0]
+        entity_id = entity_ids.get(key)
+        if entity_id is None:
+            person = resolver.people.get(key)
+            entity_id = node_identity(ENTITY, key).id if person else None
+        if entity_id is None:
+            return None
+
+        # Refuse to "resolve" a surface onto a name it already matches — that is
+        # tier 2's job and would misreport which tier decided.
+        if token in {t.casefold() for t in name_tokens(name)}:
+            return None
+
+        reason = (
+            f"no candidate shares this surface's tokens, so the graph proposed "
+            f"{name} from structure: {co} co-mention(s) in this document and "
+            f"{part} shared channel(s), sole scoring candidate sharing the "
+            f"initial '{token[0].upper()}'"
+        )
+        confidence = CONFIDENCE[METHOD_GRAPH_PROPOSED]
+        return entity_id, reason, confidence
+
     def _resolve_mentions(self, prepared: _Prepared, doc_id: int,
                           mention_ids: dict[tuple[int, int], int],
                           pending: list) -> tuple[int, int]:
@@ -630,11 +706,33 @@ class OnDemandIngestor:
                 for key in outcome.candidates if key in entity_ids
             }
             if not candidates:
+                # No string rule offered anybody, which is where the brief's own
+                # example lives: `sam` shares no token with `soham ratnaparkhi`.
+                # Every tier above has now failed by construction, so either the
+                # graph proposes an identity or nothing does.
+                decided = self._propose_from_structure(
+                    evidence, mention, doc_id, channel_id, entity_ids, resolver)
+                if decided is None:
+                    statuses.append({
+                        "vertex": mid, "status": "unresolved",
+                        "method": METHOD_UNRESOLVED, "candidates": 0,
+                        "reason": (outcome.evidence or "no candidate")[:300],
+                        "entity": 0,
+                    })
+                    continue
+                entity_id, reason, confidence = decided
+                edge = edge_identity("RESOLVES_TO", mid, entity_id)
+                pending.append(edge)
+                graph_resolves.append({
+                    "src": mid, "dst": entity_id, "eid": edge.id,
+                    "method": METHOD_GRAPH_PROPOSED, "confidence": confidence,
+                    "evidence": reason[:400], "candidates": 0,
+                    "run_id": self.run_id,
+                })
                 statuses.append({
-                    "vertex": mid, "status": "unresolved",
-                    "method": METHOD_UNRESOLVED, "candidates": 0,
-                    "reason": (outcome.evidence or "no candidate")[:300],
-                    "entity": 0,
+                    "vertex": mid, "status": "resolved",
+                    "method": METHOD_GRAPH_PROPOSED, "candidates": 0,
+                    "reason": reason[:300], "entity": entity_id,
                 })
                 continue
 
