@@ -42,6 +42,53 @@ ENTITY = "Entity"
 CLAIM = "Claim"
 SPAN = "EvidenceSpan"
 CHANNEL = "Channel"
+TICKET = "Ticket"
+
+# `TICKET_KEY_RE` is deliberately loose — `[A-Z]{2,10}-\d{1,6}` — because ticket
+# schemes are per-company and guessing the prefix set would miss most of them.
+# That looseness catches a predictable family of things that are not tickets:
+# cipher and digest sizes, severity labels, standards, and key lengths. They are
+# excluded by prefix rather than by pattern because the *shape* is genuinely
+# identical — `AES-256` and `PROJ-256` cannot be told apart without knowing what
+# `AES` is.
+_NOT_A_TICKET_PREFIX = frozenset({
+    "AES", "SHA", "MD", "RSA", "ECDSA", "HMAC", "SSL", "TLS", "SSH", "GPG",
+    "UTF", "ISO", "RFC", "ASCII", "HTTP", "HTTPS", "IPV", "IEEE", "ANSI",
+    "SOC", "PCI", "HIPAA", "GDPR", "FIPS", "NIST", "CVE", "CWE", "CVSS",
+    "SEV", "P", "SLA", "SLO", "SLI", "TTL", "QPS", "RPS", "GPU", "CPU",
+    "RAM", "SSD", "NVME", "PCIE", "DDR", "INT", "FP", "BF", "FP16", "INT8",
+    "USD", "EUR", "GBP", "UTC", "GMT", "AM", "PM",
+})
+
+# A four-digit tail in a plausible year range is almost always a date rather
+# than a ticket number (`INC-2026`, `Q4-2025`). Real ticket counters do reach
+# four digits, so this only fires when the prefix is not already known to be a
+# ticket scheme in this corpus — see `_ticket_keys`.
+_YEAR_LIKE = range(1990, 2101)
+
+
+def _ticket_keys(references) -> list[str]:
+    """The ticket keys in `references` that are plausibly real tickets.
+
+    Returns canonical upper-case keys, deduplicated, order preserved. A document
+    citing the same ticket five times is one edge, not five: the edge means
+    "this document refers to that ticket", and repetition does not make it truer.
+    """
+    keys: list[str] = []
+    seen: set[str] = set()
+    for ref in references:
+        if ref.kind != "ticket":
+            continue
+        key = ref.target.upper()
+        prefix, _, number = key.partition("-")
+        if prefix in _NOT_A_TICKET_PREFIX:
+            continue
+        if len(number) == 4 and number.isdigit() and int(number) in _YEAR_LIKE:
+            continue
+        if key not in seen:
+            seen.add(key)
+            keys.append(key)
+    return keys
 
 
 @dataclass
@@ -58,6 +105,7 @@ class _Prepared:
     body: str = ""
     channel: str | None = None
     mentions: list = field(default_factory=list)
+    references: list = field(default_factory=list)
     accepted: list = field(default_factory=list)
     rejected: list = field(default_factory=list)
     error: str = ""
@@ -69,6 +117,7 @@ class IngestReport:
     dsid: str
     already_present: bool = False
     mentions: int = 0
+    tickets: int = 0
     resolved: int = 0
     unresolved: int = 0
     claims: int = 0
@@ -239,6 +288,7 @@ class OnDemandIngestor:
         parsed = parse_document(dsid, prepared.source_type, prepared.title,
                                 record.get("content") or "")
         prepared.mentions = parsed.verified_mentions(body)[:400]
+        prepared.references = parsed.references
         prepared.channel = parsed.attributes.get("channel")
         prepared.seconds = time.perf_counter() - started
         return prepared
@@ -336,6 +386,40 @@ class OnDemandIngestor:
                          job=f"ondemand-mi:{dsid}", source_label=MENTION,
                          target_label=DOC, properties=["role", "run_id"])
         report.mentions = len(mention_rows)
+
+        # --- cross-document structure ----------------------------------------
+        #
+        # Every parser already extracts ticket keys into `ParsedDoc.references`,
+        # and until now nothing read them. They are the one exact, inference-free
+        # link between documents this corpus offers: a Slack thread and a Jira
+        # export that both name `PROJ-412` are talking about the same work, and
+        # no amount of lexical similarity between them establishes that.
+        #
+        # This matters most for the six sources with no dedicated parser, which
+        # fall through to `generic` and contribute no mentions at all — a ticket
+        # key is the only structure recoverable from them.
+        ticket_rows, references = [], []
+        for key in _ticket_keys(prepared.references):
+            identity = node_identity(TICKET, key)
+            pending.append(identity)
+            ticket_rows.append({
+                "vertex": identity.id, "key": key, "run_id": self.run_id,
+            })
+            edge = edge_identity("REFERENCES", doc_identity.id, identity.id)
+            pending.append(edge)
+            references.append({
+                "src": doc_identity.id, "dst": identity.id, "eid": edge.id,
+                "run_id": self.run_id,
+            })
+
+        if ticket_rows:
+            upsert_nodes(self.client, TICKET, ticket_rows,
+                         job=f"ondemand-t:{dsid}",
+                         properties=["key", "run_id"])
+            upsert_edges(self.client, "REFERENCES", references,
+                         job=f"ondemand-r:{dsid}", source_label=DOC,
+                         target_label=TICKET, properties=["run_id"])
+        report.tickets = len(ticket_rows)
 
         # --- identity --------------------------------------------------------
         if mention_rows and self.resolve:

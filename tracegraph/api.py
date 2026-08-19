@@ -125,7 +125,8 @@ class AskRequest(BaseModel):
     question: str
 
 
-NODE_LABELS = ("Document", "Entity", "Mention", "Claim", "EvidenceSpan", "Channel")
+NODE_LABELS = ("Document", "Entity", "Mention", "Claim", "EvidenceSpan",
+               "Channel", "Ticket")
 
 # Counting a relationship type means anchoring on a label and expanding every
 # vertex under it, so the cost tracks the size of the anchor rather than the

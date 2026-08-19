@@ -58,6 +58,8 @@ class ControllerResult:
     # from `claims` so an abstention cannot be rendered as though it had support.
     examined: list[dict] = field(default_factory=list)
     alternatives: list[dict] = field(default_factory=list)
+    # Documents reached by traversal that retrieval did not return.
+    related: list[dict] = field(default_factory=list)
     rejected_citations: list[str] = field(default_factory=list)
     rejected_spans: list[dict] = field(default_factory=list)
     trace: dict = field(default_factory=dict)
@@ -71,6 +73,7 @@ class ControllerResult:
             "claims": self.claims,
             "examined": self.examined,
             "alternatives": self.alternatives,
+            "related": self.related,
             "hydradb_trace": self.trace,
         }
 
@@ -80,7 +83,7 @@ class AnswerController:
 
     def __init__(self, client: HydraClient, run_id: str, *, max_documents: int = 8,
                  ingestor=None, ingest_budget: int = 4,
-                 evidence_window: int = 40) -> None:
+                 evidence_window: int = 40, follow_tickets: bool = True) -> None:
         self.client = client
         self.run_id = run_id
         self.max_documents = max_documents
@@ -97,9 +100,14 @@ class AnswerController:
         # displaced lexical evidence out of the window and cost three answers
         # that lexical retrieval alone had got right.
         self.evidence_window = evidence_window
+        # Whether the answer path walks the ticket graph for documents retrieval
+        # did not reach. Off only for tests that assert on the lexical path in
+        # isolation, and for measuring what the traversal is worth.
+        self.follow_tickets = follow_tickets
         self.registry = IdRegistry()
         self._queries: list[TracedQuery] = []
         self._ingested: list[dict] = []
+        self._related: list[dict] = []
 
     # --- graph access, every call traced ------------------------------------
 
@@ -173,6 +181,50 @@ class AnswerController:
             {"dsid": dsid, "r": self.run_id},
             hops=2,
         )
+
+    def related_by_ticket(self, dsids: Sequence[str], *,
+                          limit: int = 6) -> list[dict]:
+        """Documents reached from these by a shared ticket, and what they assert.
+
+        Four hops, and the only one on this path that crosses a document
+        boundary::
+
+            Document -[:REFERENCES]-> Ticket <-[:REFERENCES]- Other -[:ASSERTS]-> Claim
+
+        This is the traversal lexical search cannot perform. A Slack thread
+        naming `PROJ-412` and a Jira export naming `PROJ-412` share almost no
+        vocabulary — the thread says "the retry storm", the export says
+        "increased backoff ceiling" — so no amount of term overlap connects them.
+        The ticket key does, exactly and without inference, and it is the one
+        cross-document link this corpus hands over for free.
+
+        It also reaches the six sources that have no dedicated parser. Those fall
+        through to `generic`, which contributes no mentions at all, so a ticket
+        key is the only structure recoverable from them and this is the only
+        query that reads it.
+        """
+        related: list[dict] = []
+        seen: set[str] = set()
+        for dsid in dsids:
+            for row in self._run(
+                "related_by_ticket",
+                "MATCH (d:Document {dsid: $dsid})-[:REFERENCES]->(t:Ticket)"
+                "<-[:REFERENCES]-(o:Document)-[:ASSERTS]->(c:Claim) "
+                "WHERE d.run_id = $r AND o.run_id = $r AND o.dsid <> $dsid "
+                "RETURN o.dsid AS dsid, o.title AS title, "
+                "o.source_type AS source_type, t.key AS ticket, "
+                "c.subject AS subject, c.predicate AS predicate, "
+                "c.object AS object "
+                f"LIMIT {int(limit)}",
+                {"dsid": dsid, "r": self.run_id},
+                hops=4,
+            ):
+                key = f"{row['dsid']}:{row['subject']}:{row['predicate']}"
+                if key not in seen:
+                    seen.add(key)
+                    row["via_dsid"] = dsid
+                    related.append(row)
+        return related
 
     def contested(self, claims: Sequence[dict], *,
                   asserted_in: str | None = None) -> list[dict]:
@@ -293,6 +345,12 @@ class AnswerController:
             "MATCH (d:Document {dsid: $dsid}) WHERE d.run_id = $r "
             "RETURN d.dsid AS dsid",
             {"dsid": dsid, "r": self.run_id},
+            # Zero, not one. This matches a single vertex by label and property
+            # and traverses no edge, and the reported maximum hop count is a
+            # figure the trace panel shows a reader — inflating it by counting a
+            # lookup as a traversal would misstate the one number this panel
+            # exists to report.
+            hops=0,
         )
         return bool(rows)
 
@@ -352,6 +410,20 @@ class AnswerController:
                 })
                 evidence.append(Evidence(dsid=dsid, text=quote, title=row["title"]))
 
+        # Documents the ticket graph reaches that retrieval did not. Recorded on
+        # the result whether or not the answer ends up leaning on them, because
+        # "what else is connected to this" is a question the panel should be able
+        # to answer even when the connection did not change the verdict — and
+        # because claiming a traversal helped is only worth anything if the
+        # cases where it did not are visible too.
+        self._related = []
+        if self.follow_tickets and claims:
+            try:
+                self._related = self.related_by_ticket(
+                    sorted({c["dsid"] for c in claims}))
+            except Exception:  # noqa: BLE001 - an answer must survive this
+                self._related = []
+
         if not evidence:
             return self._abstain(
                 question, "no evidence in the graph supports this question",
@@ -395,8 +467,8 @@ class AnswerController:
         return ControllerResult(
             answer=result.answer, document_ids=cited, answerability=answerability,
             confidence=confidence, claims=used[:20], alternatives=alternatives,
-            rejected_citations=rejected, rejected_spans=rejected_spans,
-            trace=self._trace(started),
+            related=self._related, rejected_citations=rejected,
+            rejected_spans=rejected_spans, trace=self._trace(started),
         )
 
     def _abstain(self, question, reason, started, claims, rejected_spans,
@@ -415,8 +487,15 @@ class AnswerController:
         return ControllerResult(
             answer=f"The available evidence does not answer this question: {reason}.",
             document_ids=[], answerability=INSUFFICIENT, confidence=0.0,
-            claims=[], examined=claims[:10], rejected_citations=rejected or [],
-            rejected_spans=rejected_spans, trace=self._trace(started),
+            claims=[], examined=claims[:10],
+            # `getattr`, not `self._related`, because this method is pure by
+            # design and `tests/test_answer_contract.py` exercises it on a
+            # controller built with `__new__` and no engine behind it. An
+            # abstention reached before the traversal ran has nothing to report,
+            # and that is a legitimate state rather than a missing attribute.
+            related=getattr(self, "_related", []),
+            rejected_citations=rejected or [], rejected_spans=rejected_spans,
+            trace=self._trace(started),
         )
 
     def _trace(self, started: float) -> dict:
