@@ -398,10 +398,35 @@ document.querySelectorAll(".tab").forEach(b => b.onclick = () => {
 document.getElementById("askForm").onsubmit = e => {
   e.preventDefault();
   const q = document.getElementById("q").value.trim();
-  if (q) ask(q);
+  if (q) {
+    history.replaceState(null, "", "?q=" + encodeURIComponent(q));
+    ask(q);
+  }
 };
 
 renderExamples(); loadStatus(); renderInspect();
+
+// A question in the URL asks it on load, and asking one puts it back in the
+// URL. An answer is the thing worth sending someone — "run this and type
+// this" is not a citation — and reload now reproduces a result rather than
+// clearing it.
+(function () {
+  const params = new URLSearchParams(location.search);
+
+  const wanted = params.get("tab");
+  const button = wanted && document.querySelector(`.tab[data-tab="${CSS.escape(wanted)}"]`);
+  if (button) {
+    document.querySelectorAll(".tab").forEach(x => x.setAttribute("aria-selected", x === button));
+    tab = wanted;
+    renderInspect();
+  }
+
+  const initial = params.get("q");
+  if (initial) {
+    document.getElementById("q").value = initial;
+    ask(initial);
+  }
+})();
 </script>
 </body>
 </html>
