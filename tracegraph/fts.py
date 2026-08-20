@@ -58,6 +58,37 @@ _QUOTED_SPAN = re.compile(r'"([^"]*)"|“([^”]*)”')
 # query syntax and is dropped rather than escaped.
 _TOKEN = re.compile(r"[^\W_]+", re.UNICODE)
 
+# Closed-class English words carry almost no retrieval signal on their own and,
+# in a 512k-document corpus, can have enormous document frequency -- ranking
+# against them costs seconds of bm25 work for no precision gain. These are
+# dropped only from the free OR terms of a question, never from a user-quoted
+# phrase: quoting a phrase is deliberate intent and its tokens must stay
+# verbatim.
+_STOPWORDS = frozenset(
+    """
+    a an the and or but nor not no so yet
+    is am are was were be been being
+    do does did doing
+    have has had having
+    i you he she it we they me him her us them
+    my your his its our their mine yours hers ours theirs
+    this that these those
+    what which who whom whose when where why how
+    in on at to for with from by of about into over under above below
+    between through during before after up down out off again further
+    then there here as if else than because while although though
+    until unless since all any both each few more most other some
+    such only own same too very can will just should now
+    """.split()
+)
+
+# A single letter or digit is almost never a meaningful search term and, like
+# a stopword, can have an outsized document frequency (a bare "2" alone
+# matches the large majority of this corpus). This is the standard IR
+# minimum-term-length heuristic, not a numeral-specific carve-out, so real
+# short identifiers of two or more characters ("q3", "ai") are unaffected.
+_MIN_FREE_TERM_LEN = 2
+
 
 @dataclass(frozen=True)
 class BuildStats:
@@ -184,6 +215,15 @@ def sanitise_query(text: str) -> str:
     nothing. bm25 still ranks documents matching more of the question first.
     Spans the user quoted are kept as phrases, which is the only phrase intent
     that can be recovered without guessing.
+
+    Free (non-phrase) terms drop stopwords and single-character tokens, since
+    those are the ones with the enormous document frequency that makes
+    ranking slow; a quoted phrase is exempt and keeps every token. If a
+    question is made up of nothing but stopwords and short tokens (e.g. "what
+    is it"), filtering would leave no terms at all -- that falls back to the
+    unfiltered terms rather than returning empty, because an empty MATCH
+    expression makes the caller find zero candidates and abstain, which is
+    worse than searching on weak terms.
     """
     phrases: list[str] = []
 
@@ -195,7 +235,13 @@ def sanitise_query(text: str) -> str:
         return " "
 
     remainder = _QUOTED_SPAN.sub(_lift_phrase, text)
-    terms = phrases + _TOKEN.findall(remainder)
+    free_terms = _TOKEN.findall(remainder)
+    filtered_free = [
+        term
+        for term in free_terms
+        if len(term) >= _MIN_FREE_TERM_LEN and term.casefold() not in _STOPWORDS
+    ]
+    terms = phrases + (filtered_free if (phrases or filtered_free) else free_terms)
 
     seen: set[str] = set()
     unique: list[str] = []

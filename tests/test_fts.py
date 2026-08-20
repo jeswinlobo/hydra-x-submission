@@ -126,9 +126,10 @@ def test_search_tolerates_fts5_syntax_in_a_natural_question(db):
 
 def test_sanitise_query_quotes_terms_and_drops_punctuation():
     assert sanitise_query("rollback plan") == '"rollback" OR "plan"'
-    # Bare boolean keywords become literal terms rather than operators; the
-    # unicode61 tokenizer folds case on both sides, so casing is left alone.
-    assert sanitise_query("deploy OR NOT freeze") == '"deploy" OR "OR" OR "NOT" OR "freeze"'
+    # Bare boolean keywords never act as operators -- they are tokenized like
+    # any other word -- but "or" and "not" are themselves common stopwords, so
+    # they are filtered out here the same as any other closed-class word.
+    assert sanitise_query("deploy OR NOT freeze") == '"deploy" OR "freeze"'
     # A hyphenated or colon-suffixed token contributes its parts, never syntax.
     assert sanitise_query("atlas-migration status:") == '"atlas" OR "migration" OR "status"'
     # Nothing survives stripping, so there is no query to run.
@@ -137,11 +138,40 @@ def test_sanitise_query_quotes_terms_and_drops_punctuation():
 
 
 def test_sanitise_query_preserves_an_explicitly_quoted_phrase():
+    # "the" is a stopword and is dropped from the free terms, but every token
+    # inside the user's explicit phrase survives regardless.
     assert sanitise_query('the "deploy freeze" policy') == (
-        '"deploy freeze" OR "the" OR "policy"'
+        '"deploy freeze" OR "policy"'
     )
-    # An unbalanced quote is a typo, not a phrase, and must not leak syntax.
-    assert sanitise_query('the "deploy freeze') == '"the" OR "deploy" OR "freeze"'
+    # An unbalanced quote is a typo, not a phrase, and must not leak syntax;
+    # "the" is still dropped as a stopword once it falls back to a free term.
+    assert sanitise_query('the "deploy freeze') == '"deploy" OR "freeze"'
+
+
+def test_sanitise_query_drops_stopwords_and_short_tokens():
+    # Ordinary closed-class words and single-character tokens contribute
+    # nothing to lexical ranking and are expensive to rank in a large corpus,
+    # so they are filtered out of the free OR terms.
+    assert sanitise_query("what is the deploy freeze policy") == (
+        '"deploy" OR "freeze" OR "policy"'
+    )
+    assert sanitise_query("a 2 q3 incident") == '"q3" OR "incident"'
+
+
+def test_sanitise_query_keeps_every_token_of_a_quoted_phrase():
+    # A phrase the user explicitly quoted is deliberate intent: even a
+    # stopword or a single-character token inside it must survive verbatim,
+    # unlike the same tokens appearing as free terms.
+    assert sanitise_query('"a 2" report') == '"a 2" OR "report"'
+    assert sanitise_query('"what is" the policy') == '"what is" OR "policy"'
+
+
+def test_sanitise_query_falls_back_when_filtering_would_leave_nothing():
+    # A question made only of stopwords and short tokens must still produce a
+    # MATCH expression -- an empty one would make retrieve_documents find zero
+    # candidates and abstain, which is worse than searching on weak terms.
+    assert sanitise_query("what is it") == '"what" OR "is" OR "it"'
+    assert sanitise_query("a 2 I") == '"a" OR "2" OR "I"'
 
 
 def test_search_returns_nothing_when_the_question_has_no_terms(db):

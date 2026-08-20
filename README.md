@@ -28,7 +28,7 @@ ingest — and whatever it reaches is parsed, resolved, and extracted into the
 graph during the request, then stays there for later questions.
 
 ```
-$ ./scripts/60_serve.sh          # → http://127.0.0.1:8000
+$           # → http://127.0.0.1:8000
 ```
 
 > **Q: Which quantization profile caused the P95 latency regression?**

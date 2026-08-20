@@ -3,110 +3,230 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#F6F3EC">
 <title>TraceGraph — Ask &amp; Inspect</title>
 <style>
   :root {
-    --bg: #0d0d0d; --surface: #1a1a19; --surface-2: #232322;
-    --line: rgba(255,255,255,0.10); --text: #ffffff; --dim: #c3c2b7;
-    --muted: #898781; --accent: #3987e5; --good: #0ca30c; --warn: #fab219;
-    --person: #3987e5; --doc: #d95926; --claim: #199e70; --span: #d55181;
+    --bg: #F6F3EC; --surface: #FFFFFF; --surface-2: #F1EBDD; --surface-3: #E8E0CC;
+    --line: rgba(35,29,20,0.11); --line-strong: rgba(35,29,20,0.20);
+    --text: #211C14; --dim: #55503f; --muted: #8c8471;
+    --accent: #C15F3C; --accent-ink: #9c4a2d; --accent-soft: rgba(193,95,60,0.12);
+    --good: #3f7a54; --good-soft: rgba(63,122,84,0.12);
+    --warn: #b1802c; --warn-soft: rgba(177,128,44,0.14);
+    --person: #3d6c99; --doc: #C15F3C; --claim: #3f7a54; --span: #99476b;
+    --radius: 16px; --radius-sm: 10px;
+    --shadow-sm: 0 1px 2px rgba(35,29,20,.06), 0 1px 1px rgba(35,29,20,.04);
+    --shadow-md: 0 14px 32px -12px rgba(35,29,20,.16), 0 2px 8px rgba(35,29,20,.05);
+    --serif: "Iowan Old Style", "Palatino Linotype", Georgia, Cambria, "Times New Roman", serif;
+    --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
     --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    --ease: cubic-bezier(.22,.68,0,1);
   }
   * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
   body {
     margin: 0; background: var(--bg); color: var(--text);
-    font: 14px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+    font: 14px/1.6 var(--sans);
+    -webkit-font-smoothing: antialiased;
+    position: relative;
+    animation: pageIn .5s var(--ease) both;
   }
+  body::before, body::after {
+    content: ""; position: fixed; z-index: -1; border-radius: 50%;
+    filter: blur(70px); pointer-events: none; opacity: .55;
+  }
+  body::before {
+    width: 520px; height: 520px; top: -180px; right: -140px;
+    background: radial-gradient(circle at 30% 30%, #f0c4a2, transparent 70%);
+  }
+  body::after {
+    width: 460px; height: 460px; bottom: -200px; left: -160px;
+    background: radial-gradient(circle at 60% 40%, #d9dcc0, transparent 70%);
+  }
+  ::selection { background: var(--accent-soft); color: var(--accent-ink); }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
   header {
-    display: flex; align-items: center; gap: 24px; padding: 10px 20px;
-    border-bottom: 1px solid var(--line); background: var(--surface);
+    display: flex; align-items: center; gap: 24px; padding: 16px 28px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(246,243,236,0.82); backdrop-filter: blur(10px);
     position: sticky; top: 0; z-index: 5; flex-wrap: wrap;
   }
-  .brand { font-weight: 650; letter-spacing: -0.2px; }
-  .brand span { color: var(--muted); font-weight: 400; margin-left: 8px; }
-  .stats { display: flex; gap: 18px; margin-left: auto; flex-wrap: wrap; }
-  .stat .k { color: var(--muted); font-size: 11px; text-transform: uppercase;
-             letter-spacing: 0.04em; }
-  .stat .v { font-family: var(--mono); font-size: 13px; }
-  main { display: grid; grid-template-columns: 1.05fr 1fr; gap: 16px;
-         padding: 16px 20px 40px; align-items: start; }
+  .brand {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--serif); font-size: 19px; font-weight: 600; letter-spacing: -0.2px;
+  }
+  .brand .mark {
+    width: 20px; height: 20px; border-radius: 6px; background: var(--accent);
+    display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+    box-shadow: 0 0 0 0 var(--accent-soft);
+    animation: pulseRing 2.6s ease-out infinite;
+  }
+  .brand .mark i {
+    display: block; width: 6px; height: 6px; border-radius: 50%; background: #fff;
+  }
+  .brand span {
+    color: var(--muted); font-family: var(--sans); font-weight: 400; font-size: 12.5px;
+    margin-left: 4px; letter-spacing: 0.01em;
+  }
+  .stats { display: flex; gap: 22px; margin-left: auto; flex-wrap: wrap; }
+  .stat { padding-left: 16px; border-left: 1px solid var(--line); }
+  .stat:first-child { padding-left: 0; border-left: 0; }
+  .stat .k { color: var(--muted); font-size: 10.5px; text-transform: uppercase;
+             letter-spacing: 0.07em; }
+  .stat .v { font-family: var(--mono); font-size: 13.5px; font-weight: 600;
+             color: var(--text); margin-top: 1px; }
+
+  main { display: grid; grid-template-columns: 1.05fr 1fr; gap: 20px;
+         padding: 28px 28px 56px; align-items: start; max-width: 1320px; margin: 0 auto; }
   @media (max-width: 1080px) { main { grid-template-columns: 1fr; } }
-  .panel { background: var(--surface); border: 1px solid var(--line);
-           border-radius: 10px; }
-  .panel > h2 { margin: 0; padding: 12px 16px; font-size: 12px; font-weight: 600;
-                text-transform: uppercase; letter-spacing: 0.06em;
+
+  .panel {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); box-shadow: var(--shadow-sm);
+    transition: box-shadow .25s var(--ease), border-color .25s var(--ease);
+  }
+  .panel:hover { box-shadow: var(--shadow-md); }
+  .panel > h2 { margin: 0; padding: 14px 20px; font-size: 11.5px; font-weight: 650;
+                text-transform: uppercase; letter-spacing: 0.08em; font-family: var(--sans);
                 color: var(--muted); border-bottom: 1px solid var(--line); }
-  .body { padding: 16px; }
-  form { display: flex; gap: 8px; }
+  .body { padding: 20px; }
+
+  form { display: flex; gap: 10px; }
   input[type=text] {
     flex: 1; background: var(--surface-2); border: 1px solid var(--line);
-    border-radius: 7px; color: var(--text); padding: 11px 13px; font-size: 14px;
+    border-radius: var(--radius-sm); color: var(--text); padding: 12px 15px; font-size: 14.5px;
+    transition: border-color .2s var(--ease), box-shadow .2s var(--ease), background .2s var(--ease);
+    font-family: var(--sans);
   }
-  input[type=text]:focus { outline: none; border-color: var(--accent); }
+  input[type=text]::placeholder { color: var(--muted); }
+  input[type=text]:focus {
+    outline: none; border-color: var(--accent); background: var(--surface);
+    box-shadow: 0 0 0 4px var(--accent-soft);
+  }
   button {
-    background: var(--accent); color: #fff; border: 0; border-radius: 7px;
-    padding: 11px 20px; font-size: 14px; font-weight: 550; cursor: pointer;
+    background: var(--accent); color: #fff; border: 0; border-radius: 999px;
+    padding: 12px 24px; font-size: 14px; font-weight: 600; cursor: pointer;
+    font-family: var(--sans); letter-spacing: 0.01em;
+    transition: transform .15s var(--ease), box-shadow .2s var(--ease), background .2s var(--ease);
+    box-shadow: var(--shadow-sm);
   }
-  button:disabled { opacity: 0.55; cursor: default; }
-  .examples { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  button:hover:not(:disabled) { background: var(--accent-ink); transform: translateY(-1px); box-shadow: var(--shadow-md); }
+  button:active:not(:disabled) { transform: translateY(0); }
+  button:disabled { opacity: 0.6; cursor: default; transform: none; }
+
+  .examples { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
   .chip {
     background: var(--surface-2); border: 1px solid var(--line); color: var(--dim);
-    border-radius: 999px; padding: 5px 12px; font-size: 12px; cursor: pointer;
+    border-radius: 999px; padding: 6px 14px; font-size: 12.5px; cursor: pointer;
+    font-family: var(--sans); transition: all .18s var(--ease);
   }
-  .chip:hover { border-color: var(--accent); color: var(--text); }
+  .chip:hover { border-color: var(--accent); color: var(--accent-ink); background: var(--accent-soft);
+                transform: translateY(-1px); }
+
   .badge {
     display: inline-flex; align-items: center; gap: 7px; border-radius: 999px;
-    padding: 4px 12px; font-size: 12px; font-weight: 600;
-    border: 1px solid var(--line);
+    padding: 5px 14px; font-size: 12px; font-weight: 650;
+    border: 1px solid transparent; animation: fadeInUp .4s var(--ease) both;
   }
-  .badge.supported { color: var(--good); }
-  .badge.insufficient { color: var(--dim); }
-  .badge.conflicting { color: var(--warn); }
-  .meter { height: 5px; background: var(--surface-2); border-radius: 3px;
-           overflow: hidden; margin-top: 8px; }
-  .meter > i { display: block; height: 100%; background: var(--accent); }
-  .answer { margin: 14px 0; font-size: 15px; line-height: 1.65; }
-  .cite { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+  .badge.supported { color: var(--good); background: var(--good-soft); }
+  .badge.insufficient { color: var(--dim); background: var(--surface-2); }
+  .badge.conflicting { color: var(--warn); background: var(--warn-soft); }
+
+  .meter { height: 6px; background: var(--surface-2); border-radius: 4px;
+           overflow: hidden; margin-top: 10px; }
+  .meter > i { display: block; height: 100%; border-radius: 4px;
+               background: linear-gradient(90deg, var(--accent-ink), var(--accent));
+               transition: width .7s var(--ease); }
+  .answer { margin: 16px 0; font-size: 15.5px; line-height: 1.75; font-family: var(--serif); }
+  .cite { font-family: var(--mono); font-size: 11.5px; color: var(--accent-ink); }
   ul.plain { list-style: none; margin: 0; padding: 0; }
-  .claim { border-left: 2px solid var(--claim); padding: 6px 0 6px 12px;
-           margin-bottom: 12px; }
+
+  .claim { border-left: 2px solid var(--claim); padding: 8px 0 8px 14px;
+           margin-bottom: 12px; border-radius: 0 8px 8px 0;
+           transition: background .18s var(--ease);
+           animation: fadeInUp .4s var(--ease) both; }
+  .claim:hover { background: var(--surface-2); }
   .claim .t { color: var(--dim); font-size: 13px; }
   /* Examined evidence is deliberately quieter than supporting evidence: it is
      what the system rejected, and it must not read as though it backed an
      answer. A dashed rule rather than the solid claim rule says "considered". */
-  .examined .claim { border-left: 2px dashed var(--line); opacity: 0.62; }
+  .examined .claim { border-left: 2px dashed var(--line-strong); opacity: 0.62; }
   .contested-claim { border-left-color: var(--warn); }
-  .pathline { font-size: 11px; color: var(--accent); margin-top: 3px;
-              font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .pathline { font-size: 11px; color: var(--accent-ink); margin-top: 4px;
+              font-family: var(--mono); }
   .quote { color: var(--muted); font-size: 12.5px; font-style: italic;
-           margin-top: 4px; }
-  .tabs { display: flex; gap: 4px; padding: 8px 10px 0; border-bottom: 1px solid var(--line); }
-  .tab { background: none; border: 0; color: var(--muted); padding: 8px 12px;
-         font-size: 12.5px; cursor: pointer; border-bottom: 2px solid transparent; }
-  .tab[aria-selected=true] { color: var(--text); border-bottom-color: var(--accent); }
+           margin-top: 5px; font-family: var(--serif); }
+
+  .tabs { display: flex; gap: 4px; padding: 10px 12px 0; border-bottom: 1px solid var(--line); }
+  .tab { background: none; border: 0; color: var(--muted); padding: 10px 14px;
+         font-size: 12.5px; cursor: pointer; border-bottom: 2px solid transparent;
+         font-family: var(--sans); font-weight: 550; transition: color .18s var(--ease), border-color .18s var(--ease); }
+  .tab:hover { color: var(--text); }
+  .tab[aria-selected=true] { color: var(--accent-ink); border-bottom-color: var(--accent); }
+
   pre { font-family: var(--mono); font-size: 11.5px; color: var(--dim);
-        background: var(--surface-2); padding: 10px; border-radius: 6px;
-        overflow-x: auto; margin: 0 0 8px; }
+        background: var(--surface-2); padding: 12px; border-radius: var(--radius-sm);
+        overflow-x: auto; margin: 0 0 10px; border: 1px solid var(--line); }
   table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
-  th { color: var(--muted); font-weight: 500; font-size: 11px;
-       text-transform: uppercase; letter-spacing: 0.04em; }
-  .bar { height: 4px; background: var(--surface-2); border-radius: 2px; }
-  .bar > i { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 10.5px;
+       text-transform: uppercase; letter-spacing: 0.05em; }
+  tr { animation: fadeInUp .35s var(--ease) both; }
+  tbody tr:hover, table tr:hover td { background: var(--surface-2); }
+
+  .bar { height: 5px; background: var(--surface-2); border-radius: 3px; }
+  .bar > i { display: block; height: 100%; background: var(--accent); border-radius: 3px;
+             transition: width .6s var(--ease); }
   .muted { color: var(--muted); }
-  .empty { color: var(--muted); padding: 22px 4px; text-align: center; font-size: 13px; }
-  .legend { display: flex; gap: 14px; font-size: 11px; color: var(--muted);
-            margin-top: 8px; flex-wrap: wrap; }
+  .empty { color: var(--muted); padding: 34px 4px; text-align: center; font-size: 13px;
+           font-family: var(--serif); font-style: italic; }
+  .legend { display: flex; gap: 16px; font-size: 11px; color: var(--muted);
+            margin-top: 10px; flex-wrap: wrap; }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
          margin-right: 5px; vertical-align: middle; }
-  .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid #fff6;
+  .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid #ffffff55;
              border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes pageIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes pulseRing {
+    0% { box-shadow: 0 0 0 0 var(--accent-soft); }
+    70% { box-shadow: 0 0 0 7px transparent; }
+    100% { box-shadow: 0 0 0 0 transparent; }
+  }
+
+  .trace-tiles { display: flex; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+  .trace-tile { flex: 1; min-width: 160px; background: var(--surface-2);
+                border: 1px solid var(--line); border-left: 3px solid var(--line);
+                border-radius: var(--radius-sm); padding: 12px 16px;
+                transition: transform .18s var(--ease), box-shadow .18s var(--ease);
+                animation: fadeInUp .4s var(--ease) both; }
+  .trace-tile:hover { transform: translateY(-2px); box-shadow: var(--shadow-sm); }
+  .trace-tile .n { font-family: var(--mono); font-size: 25px; font-weight: 650; line-height: 1.1; }
+  .trace-tile .l { color: var(--dim); font-size: 11px; text-transform: uppercase;
+                   letter-spacing: 0.05em; margin-top: 6px; font-weight: 600; }
+  .trace-tile .d { color: var(--muted); font-size: 11.5px; margin-top: 6px; line-height: 1.45; }
+  .trace-stackbar { display: flex; height: 10px; border-radius: 5px; overflow: hidden;
+                     margin: 2px 0 10px; background: var(--surface-2); gap: 1px; }
+  .trace-stackbar > i { display: block; height: 100%; transition: width .5s var(--ease); }
+  .trace-strip { display: flex; gap: 18px; flex-wrap: wrap; font-size: 11.5px;
+                 color: var(--muted); margin-top: 10px; padding-top: 10px;
+                 border-top: 1px solid var(--line); animation: fadeInUp .45s var(--ease) both; }
+  .trace-strip a { color: var(--accent-ink); cursor: pointer; text-decoration: underline;
+                    text-decoration-color: var(--accent-soft); text-underline-offset: 2px;
+                    transition: text-decoration-color .18s var(--ease); }
+  .trace-strip a:hover { text-decoration-color: var(--accent-ink); }
 </style>
 </head>
 <body>
 <header>
-  <div class="brand">TraceGraph <span>enterprise truth debugger on HydraDB</span></div>
+  <div class="brand"><span class="mark"><i></i></span>TraceGraph <span>enterprise truth debugger on HydraDB</span></div>
   <div class="stats" id="stats"></div>
 </header>
 
@@ -124,7 +244,7 @@
       </div>
     </div>
 
-    <div class="panel" id="answerPanel" style="margin-top:16px; display:none">
+    <div class="panel" id="answerPanel" style="margin-top:20px; display:none">
       <h2>Answer</h2>
       <div class="body" id="answer"></div>
     </div>
@@ -157,6 +277,45 @@ const esc = s => String(s ?? "").replace(/[&<>"]/g, c =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 async function get(url) { const r = await fetch(url); if (!r.ok) throw new Error(await r.text()); return r.json(); }
+
+// The headline number for this whole demo: how much of the wall clock was
+// HydraDB doing real graph work versus an LLM extracting claims from a
+// document it had never seen. Enrichment runs concurrently across up to a
+// few documents, so its wall-clock contribution is the slowest one, not the
+// sum — the sum is shown too, but only ever as "of LLM work", never added
+// into the total, so the numbers don't silently double-count time.
+function traceSummary(t) {
+  const queries = t.queries || [];
+  const ingested = t.ingested_on_demand || [];
+  const hydraMs = queries.reduce((s, q) => s + (q.latency_ms || 0), 0);
+  const enrichSumMs = ingested.reduce((s, d) => s + (d.seconds || 0) * 1000, 0);
+  const enrichWallMs = ingested.reduce((m, d) => Math.max(m, (d.seconds || 0) * 1000), 0);
+  const totalMs = t.latency_ms || 0;
+  const otherMs = Math.max(0, totalMs - hydraMs - enrichWallMs);
+  return {
+    hydraS: hydraMs / 1000, enrichWallS: enrichWallMs / 1000, enrichSumS: enrichSumMs / 1000,
+    otherS: otherMs / 1000, totalS: totalMs / 1000, docCount: ingested.length,
+  };
+}
+
+// A one-line version of the same split, shown right under the answer so a
+// demo audience never has to click into "HydraDB trace" to see that the
+// graph was fast — it's the sentence this whole project is trying to prove.
+function renderTraceStrip(t) {
+  if (!t) return "";
+  const s = traceSummary(t);
+  const enrich = s.docCount
+    ? `${s.enrichWallS.toFixed(1)}s enriching ${s.docCount} new doc${s.docCount === 1 ? "" : "s"} (parallel)`
+    : `0 new docs to enrich`;
+  return `
+    <div class="trace-strip">
+      <span><i class="dot" style="background:var(--good)"></i>${s.hydraS.toFixed(1)}s in HydraDB
+        (${t.query_count} quer${t.query_count === 1 ? "y" : "ies"})</span>
+      <span><i class="dot" style="background:var(--warn)"></i>${esc(enrich)}</span>
+      <span><i class="dot" style="background:var(--line)"></i>${s.otherS.toFixed(1)}s synthesis/overhead</span>
+      <a data-goto-trace="1">full trace →</a>
+    </div>`;
+}
 
 async function loadStatus() {
   try {
@@ -230,7 +389,7 @@ function renderAnswer() {
   // on a contested fact must not read as settled.
   const alts = (d.alternatives || []).slice(0, 5);
   const contested = alts.length ? `
-    <h3 style="font-size:12px;color:var(--warn);text-transform:uppercase;margin-top:16px">
+    <h3 style="font-size:12px;color:var(--warn);text-transform:uppercase;margin-top:18px;letter-spacing:.05em">
       Contested — ${alts.length} fact(s) another document disagrees with</h3>
     ${alts.map(a => `
       <div class="claim contested-claim">
@@ -247,16 +406,17 @@ function renderAnswer() {
   document.getElementById("answer").innerHTML = `
     <span class="badge ${a}">${label}</span>
     <div class="meter"><i style="width:${Math.round((d.confidence || 0) * 100)}%"></i></div>
-    <div class="muted" style="font-size:12px;margin-top:5px">
+    <div class="muted" style="font-size:12px;margin-top:6px">
       confidence ${d.confidence} · ${d.document_ids.length} validated citation(s)
       ${d.rejected_spans ? ` · ${d.rejected_spans} span(s) rejected as no longer verbatim` : ""}
     </div>
+    ${renderTraceStrip(d.hydradb_trace)}
     <div class="answer">${esc(d.answer)}</div>
-    ${cites ? `<h3 style="font-size:12px;color:var(--muted);text-transform:uppercase">Citations</h3>
+    ${cites ? `<h3 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Citations</h3>
                <ul class="plain">${cites}</ul>` : ""}
-    ${claims ? `<h3 style="font-size:12px;color:var(--muted);text-transform:uppercase;margin-top:16px">
+    ${claims ? `<h3 style="font-size:12px;color:var(--muted);text-transform:uppercase;margin-top:18px;letter-spacing:.05em">
                  Supporting claims — every span verified verbatim in its source</h3>${claims}` : ""}
-    ${examined ? `<h3 style="font-size:12px;color:var(--muted);text-transform:uppercase;margin-top:16px">
+    ${examined ? `<h3 style="font-size:12px;color:var(--muted);text-transform:uppercase;margin-top:18px;letter-spacing:.05em">
                  Examined and not relied on — ${looked} document(s) reached, none supporting an answer</h3>
                  <div class="examined">${examined}</div>` : ""}
     ${contested}`;
@@ -325,10 +485,10 @@ async function renderResolution() {
   const unresolved = d.unresolved.map(u => `
     <tr><td><span class="cite">${esc(u.surface)}</span></td>
         <td class="muted">${u.candidates} candidates — kept unresolved</td></tr>`).join("");
-  return `<h3 style="font-size:12px;color:var(--muted);text-transform:uppercase">
+  return `<h3 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">
             Resolved — several surfaces, one entity</h3>
           <table><tr><th>entity</th><th>surfaces and method</th></tr>${resolved}</table>
-          <h3 style="font-size:12px;color:var(--muted);text-transform:uppercase;margin-top:18px">
+          <h3 style="font-size:12px;color:var(--muted);text-transform:uppercase;margin-top:20px;letter-spacing:.05em">
             Left ambiguous on purpose</h3>
           <table><tr><th>surface</th><th>why</th></tr>${unresolved}</table>`;
 }
@@ -337,12 +497,12 @@ async function renderConflicts() {
   const d = await get("/api/conflicts?limit=5");
   if (!d.conflicts.length) return `<div class="empty">No contested facts in this run.</div>`;
   const blocks = d.conflicts.map(c => `
-    <div style="margin-bottom:20px">
+    <div style="margin-bottom:22px">
       <div><strong>${esc(c.subject)}</strong>
         <span class="muted"> — ${esc(c.predicate)}${c.mutable ? " (mutable)" : ""}</span>
         ${c.decided ? `<span class="badge supported" style="margin-left:8px">best supported</span>`
                     : `<span class="badge conflicting" style="margin-left:8px">no winner declared</span>`}</div>
-      <table style="margin-top:6px">
+      <table style="margin-top:8px">
         <tr><th>version</th><th>trust</th><th>sources</th></tr>
         ${c.versions.slice(0, 4).map(v => `
           <tr>
@@ -353,9 +513,9 @@ async function renderConflicts() {
             <td class="muted">${esc(v.sources.join(", "))}</td>
           </tr>`).join("")}
       </table>
-      <div class="muted" style="font-size:12px;margin-top:5px">${esc(c.reason)}</div>
+      <div class="muted" style="font-size:12px;margin-top:6px">${esc(c.reason)}</div>
     </div>`).join("");
-  return `<div class="muted" style="font-size:12px;margin-bottom:12px">
+  return `<div class="muted" style="font-size:12px;margin-bottom:14px">
       ${d.stats.conflicts_found} contested facts · ${d.stats.decided} with a best-supported version ·
       ${d.stats.unmapped_predicates} predicates unmapped and queued</div>${blocks}`;
 }
@@ -363,13 +523,56 @@ async function renderConflicts() {
 function renderTrace() {
   if (!current) return `<div class="empty">Ask a question to see the trace.</div>`;
   const t = current.hydradb_trace, c = t.consistency;
+  const s = traceSummary(t);
+  // Segment widths are wall-clock seconds, not summed LLM-worker seconds, so
+  // the three segments actually add up to the total bar — the point being
+  // made here is what the *user* waited for, not how much compute happened.
+  const pct = sec => s.totalS > 0 ? Math.max(0, (sec / s.totalS) * 100) : 0;
+  const enrichNote = s.docCount
+    ? `${s.docCount} new document${s.docCount === 1 ? "" : "s"} enriched, concurrently —
+       wall time is the slowest of them; Σ${s.enrichSumS.toFixed(1)}s of LLM work total,
+       not additive`
+    : `0 documents enriched — every claim already existed in the graph`;
   return `
+    <div class="trace-tiles">
+      <div class="trace-tile" style="border-left-color:var(--good)">
+        <div class="n" style="color:var(--good)">${s.hydraS.toFixed(1)}s</div>
+        <div class="l">Time in HydraDB</div>
+        <div class="d">${t.query_count} quer${t.query_count === 1 ? "y" : "ies"} · max ${t.hops} hops ·
+          real graph traversals, individually timed</div>
+      </div>
+      <div class="trace-tile" style="border-left-color:var(--warn)">
+        <div class="n" style="color:var(--warn)">${s.enrichWallS.toFixed(1)}s</div>
+        <div class="l">Enriching new docs (wall)</div>
+        <div class="d">${enrichNote}</div>
+      </div>
+      <div class="trace-tile" style="border-left-color:var(--line)">
+        <div class="n" style="color:var(--dim)">${s.otherS.toFixed(1)}s</div>
+        <div class="l">Synthesis &amp; overhead</div>
+        <div class="d">final-answer generation and request plumbing</div>
+      </div>
+    </div>
+    <div class="trace-stackbar">
+      <i style="width:${pct(s.hydraS)}%;background:var(--good)"
+         title="HydraDB queries: ${s.hydraS.toFixed(1)}s"></i>
+      <i style="width:${pct(s.enrichWallS)}%;background:var(--warn)"
+         title="Document enrichment (wall): ${s.enrichWallS.toFixed(1)}s"></i>
+      <i style="width:${pct(s.otherS)}%;background:var(--line-strong)"
+         title="Synthesis & overhead: ${s.otherS.toFixed(1)}s"></i>
+    </div>
+    <div class="muted" style="font-size:11.5px;margin-bottom:18px">
+      ${s.totalS.toFixed(1)}s wall total — HydraDB's own graph work
+      (${s.totalS > 0 ? Math.round(s.hydraS / s.totalS * 100) : 0}% of it) is the fast part;
+      ${s.docCount
+        ? "the LLM calls extracting claims from documents seen for the first time are the slow part."
+        : "there was nothing new to enrich this time, so the whole answer came straight from the graph."}
+    </div>
     <table>
       <tr><th>operation</th><th>hops</th><th>rows</th><th>ms</th></tr>
       ${t.queries.map(q => `<tr><td class="cite">${esc(q.operation)}</td>
         <td>${q.hops}</td><td>${q.results}</td><td>${q.latency_ms}</td></tr>`).join("")}
     </table>
-    <div class="muted" style="font-size:12px;margin:12px 0 6px">
+    <div class="muted" style="font-size:12px;margin:14px 0 8px">
       ${t.query_count} queries · max ${t.hops} hops · ${t.latency_ms} ms total</div>
     <pre>transport        ${esc(c.transport)}
 read_epoch       ${c.read_epoch}
@@ -394,6 +597,13 @@ async function renderInspect() {
 document.querySelectorAll(".tab").forEach(b => b.onclick = () => {
   document.querySelectorAll(".tab").forEach(x => x.setAttribute("aria-selected", x === b));
   tab = b.dataset.tab; renderInspect();
+});
+// The trace strip under the answer is re-rendered on every ask(), so its
+// "full trace →" link is delegated from a stable ancestor rather than bound
+// per-render.
+document.getElementById("answer").addEventListener("click", e => {
+  if (!e.target.closest("[data-goto-trace]")) return;
+  document.querySelector('.tab[data-tab="trace"]').click();
 });
 document.getElementById("askForm").onsubmit = e => {
   e.preventDefault();

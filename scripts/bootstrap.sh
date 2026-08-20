@@ -14,6 +14,12 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Scripts print Unicode (arrows, checkmarks) straight to stdout. On Windows
+# that stream defaults to the system codepage (cp1252), not UTF-8, and the
+# process dies mid-run on the first such character. PYTHONUTF8 forces UTF-8
+# text I/O regardless of locale; it is a no-op on platforms already UTF-8.
+export PYTHONUTF8=1
+
 FAST=0
 [[ "${1:-}" == "--fast" ]] && FAST=1
 
